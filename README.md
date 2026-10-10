@@ -56,7 +56,7 @@ pip install -r requirements-dev.txt   # en un servidor: pip install -r requireme
 
 | Archivo                | Qué contiene                                          | Dónde se instala |
 |------------------------|-------------------------------------------------------|------------------|
-| `requirements.txt`     | Lo que la API necesita para **funcionar** (FastAPI, SQLAlchemy, PyMySQL, Alembic...) | Producción y desarrollo |
+| `requirements.txt`     | Lo que la API necesita para **funcionar** (FastAPI, SQLAlchemy, PyMySQL, Alembic, scikit-learn, pandas, joblib...) | Producción y desarrollo |
 | `requirements-dev.txt` | Empieza con `-r requirements.txt` (incluye todo lo anterior) y añade herramientas de **desarrollo** (pytest, httpx2, Faker, matplotlib) | Solo en tu máquina / CI |
 
 Así el servidor no instala herramientas que nunca usa. Las dependencias se
@@ -248,6 +248,100 @@ python -m scripts.graficas --url http://127.0.0.1:8001   # otra URL
   `app/main.py`), **solo para desarrollo**: en producción hay que listar los
   orígenes permitidos.
 
+## Minería de datos: riesgo académico
+
+Un modelo de clasificación predice si un estudiante está **en riesgo
+académico** (`promedio < 3.0`) a partir de `horas_estudio`, `asistencia`,
+`semestre`, `edad` y `carrera`.
+
+### Entrenar
+
+Con estudiantes en la base (ver *Datos de prueba*):
+
+```bash
+python -m scripts.entrenar_modelo
+```
+
+El script:
+
+1. Lee los estudiantes de la base del `.env` (solo lectura) con SQLAlchemy y pandas.
+2. Separa 80 % entrenamiento / 20 % prueba, **estratificado** (misma
+   proporción de estudiantes en riesgo en ambos) y con semilla fija.
+3. Compara, con **validación cruzada estratificada de 5 particiones** sobre
+   el entrenamiento, una **Regresión Logística** (con `StandardScaler`) y un
+   **Árbol de Decisión** (`max_depth=4`), ambos con `class_weight="balanced"`.
+   Como referencia muestra también la Regresión Logística **sin balancear**
+   (no compite).
+4. Elige el mejor por **F2** (como F1, pero el recall pesa el doble que la precision).
+5. Evalúa los modelos en el conjunto de prueba y muestra la importancia de las variables.
+6. Guarda el Pipeline completo en `modelos/riesgo.joblib` y las métricas en
+   `modelos/metricas.json` (carpeta ignorada por Git: se regenera con el
+   script), más `graficas/matriz_confusion.png` y `graficas/importancia_variables.png`.
+
+`promedio` **no** es una variable de entrada: el objetivo se calcula a partir
+de él, así que usarlo sería *fuga de datos* (el modelo "vería la respuesta").
+
+### Métricas obtenidas (300 estudiantes del seed, conjunto de prueba: 60, 11 en riesgo)
+
+| Modelo                               | Accuracy | Precision | Recall | F1    | F2    |
+|--------------------------------------|---------:|----------:|-------:|------:|------:|
+| **Regresión Logística** (elegido)    | 0.917    | 0.800     | 0.727  | 0.762 | 0.741 |
+| Árbol de Decisión                    | 0.867    | 0.600     | 0.818  | 0.692 | 0.763 |
+| Regresión Logística sin balancear    | 0.900    | 1.000     | 0.455  | 0.625 | 0.510 |
+
+En validación cruzada (que es con lo que se elige) la Regresión Logística
+obtuvo F2 = 0.672 ± 0.232 frente a 0.594 ± 0.146 del árbol. Con tan pocos
+estudiantes en riesgo en la prueba (11), **un solo acierto o fallo cambia el
+recall en ~9 puntos**: las cifras son orientativas.
+
+Variables más influyentes: **asistencia** y **horas de estudio** (en ambos
+modelos). El semestre prácticamente no influye; la edad tampoco en el árbol,
+aunque la Regresión Logística le da algo de peso por una casualidad de esta
+muestra concreta (con más datos desaparece).
+
+### Por qué importa más el recall que la accuracy
+
+- **Recall** = de los estudiantes que de verdad están en riesgo, ¿a cuántos detecta?
+- **Precision** = de los que el modelo marca en riesgo, ¿cuántos lo están de verdad?
+- **Accuracy** = aciertos totales.
+
+Solo ~18 % está en riesgo: un modelo que diga "nadie está en riesgo" acierta
+el 82 % (accuracy alta) y no sirve para nada. Además, los errores no cuestan
+lo mismo: no detectar a un estudiante en riesgo (falso negativo) puede
+acabar en una materia perdida o en deserción, mientras que alertar de más
+(falso positivo) solo cuesta una tutoría innecesaria.
+
+### Predecir: `POST /prediccion/riesgo`
+
+```json
+// petición
+{"horas_estudio": 6, "asistencia": 70, "semestre": 2, "edad": 18, "carrera": "Medicina"}
+// respuesta
+{"en_riesgo": true, "probabilidad": 0.98, "modelo": "Regresión Logística"}
+```
+
+- `probabilidad` (0-1) es la estimación del modelo de que el estudiante esté
+  en riesgo; `en_riesgo` es `true` si es ≥ 0.5.
+- Como se entrenó con `class_weight="balanced"`, las probabilidades están
+  **infladas** hacia el riesgo (por diseño, para no dejar escapar casos): son
+  útiles para **ordenar** estudiantes de más a menos riesgo, no como
+  porcentaje literal. Por ejemplo, un estudiante "típico" (14 h, 82 %) sale
+  con ~0.31 aunque solo el 18 % de los estudiantes esté en riesgo.
+- Es una **alerta temprana**, no un diagnóstico: sirve para priorizar a quién
+  ofrecer tutorías.
+- La carrera tiene que ser una de las que el modelo conoce; si no, responde
+  **422** con la lista `carreras_validas`.
+- Si no hay modelo entrenado, responde **503** indicando cómo entrenarlo.
+- La API carga el modelo una sola vez y, si se reentrena, lo recarga sola
+  (sin reiniciar).
+
+`GET /prediccion/metricas` devuelve `modelos/metricas.json` más
+`carreras_validas` (para llenar el desplegable del formulario en Flutter).
+
+> ⚠️ `modelos/riesgo.joblib` usa *pickle*: carga solo modelos generados por
+> ti. Además, un `.joblib` solo está garantizado con la misma versión de
+> scikit-learn con la que se entrenó (`version_sklearn` en `metricas.json`).
+
 ## Estructura del proyecto
 
 ```
@@ -258,14 +352,17 @@ api-tienda/
 │   ├── database.py      # Engine, sesión y dependencia get_db()
 │   ├── models.py        # Modelos de SQLAlchemy (tablas)
 │   ├── schemas.py       # Esquemas de Pydantic (validación y respuesta)
+│   ├── ml.py            # Variables y Pipeline del modelo (compartido script/API)
 │   └── routers/
 │       ├── productos.py   # Endpoints CRUD de /productos
 │       ├── categorias.py  # Endpoints CRUD de /categorias
 │       ├── estudiantes.py # Endpoints CRUD de /estudiantes
-│       └── estadisticas.py # Estadísticas de estudiantes (GROUP BY)
+│       ├── estadisticas.py # Estadísticas de estudiantes (GROUP BY)
+│       └── prediccion.py  # Predicción de riesgo académico
 ├── scripts/
 │   ├── seed_estudiantes.py # Genera estudiantes de prueba (Faker)
-│   └── graficas.py      # PNG de las estadísticas (matplotlib)
+│   ├── graficas.py      # PNG de las estadísticas (matplotlib)
+│   └── entrenar_modelo.py # Entrena el modelo de riesgo (scikit-learn)
 ├── alembic/
 │   ├── env.py           # Conecta Alembic con la config y los modelos
 │   └── versions/        # Archivos de migración
@@ -275,7 +372,8 @@ api-tienda/
 │   ├── test_productos.py
 │   ├── test_categorias.py
 │   ├── test_estudiantes.py
-│   └── test_estadisticas.py
+│   ├── test_estadisticas.py
+│   └── test_prediccion.py
 ├── pytest.ini           # Configuración de pytest
 ├── .env.example         # Plantilla de variables de entorno
 ├── requirements.txt     # Dependencias de la app
@@ -373,3 +471,10 @@ son enteros y los promedios/porcentajes, decimales. Sin datos, devuelven `[]`.
 | `/estudiantes/estadisticas/riesgo-por-carrera`     | % de estudiantes con promedio < 3.0     | mayor a menor |
 
 En caso de empate se ordena alfabéticamente, para que el resultado sea siempre el mismo.
+
+### Predicción
+
+| Método | Ruta                    | Descripción                                   | Respuesta |
+|--------|-------------------------|-----------------------------------------------|-----------|
+| `POST` | `/prediccion/riesgo`    | Predice si un estudiante está en riesgo       | 200 / 422 / 503 |
+| `GET`  | `/prediccion/metricas`  | Métricas del modelo y carreras válidas        | 200 / 503 |

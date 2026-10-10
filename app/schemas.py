@@ -1,4 +1,5 @@
 from decimal import Decimal
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -29,16 +30,25 @@ class ProductoOut(ProductoCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
+# Rangos de un estudiante, definidos una sola vez y compartidos por
+# EstudianteCreate y PrediccionEntrada.
+Edad = Annotated[int, Field(ge=16, le=35)]
+Carrera = Annotated[str, Field(min_length=1, max_length=100)]
+Semestre = Annotated[int, Field(ge=1, le=10)]
+HorasEstudio = Annotated[int, Field(ge=0, le=40, description="Horas de estudio por semana")]
+Asistencia = Annotated[int, Field(ge=0, le=100, description="Porcentaje de asistencia")]
+
+
 class EstudianteCreate(BaseModel):
     nombre: str = Field(min_length=1, max_length=50)
     apellido: str = Field(min_length=1, max_length=50)
-    edad: int = Field(ge=16, le=35)
-    carrera: str = Field(min_length=1, max_length=100)
-    semestre: int = Field(ge=1, le=10)
+    edad: Edad
+    carrera: Carrera
+    semestre: Semestre
     promedio: Decimal = Field(ge=0, le=5, max_digits=3, decimal_places=2)
     ciudad: str = Field(min_length=1, max_length=100)
-    horas_estudio: int = Field(ge=0, le=40, description="Horas de estudio por semana")
-    asistencia: int = Field(ge=0, le=100, description="Porcentaje de asistencia")
+    horas_estudio: HorasEstudio
+    asistencia: Asistencia
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -53,3 +63,26 @@ class EstadisticaOut(BaseModel):
 
     etiqueta: str
     valor: int | float
+
+
+class PrediccionEntrada(BaseModel):
+    """Datos de un estudiante para predecir su riesgo (sin promedio: es lo que se predice)."""
+
+    horas_estudio: HorasEstudio
+    asistencia: Asistencia
+    semestre: Semestre
+    edad: Edad
+    carrera: Carrera
+
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        json_schema_extra={"examples": [{
+            "horas_estudio": 6, "asistencia": 70, "semestre": 2, "edad": 18, "carrera": "Medicina",
+        }]},
+    )
+
+
+class PrediccionSalida(BaseModel):
+    en_riesgo: bool
+    probabilidad: float = Field(ge=0, le=1, description="Probabilidad de estar en riesgo (0-1)")
+    modelo: str
