@@ -172,8 +172,10 @@ api-tienda/
 │   ├── models.py        # Modelos de SQLAlchemy (tablas)
 │   ├── schemas.py       # Esquemas de Pydantic (validación y respuesta)
 │   └── routers/
-│       ├── productos.py # Endpoints CRUD de /productos
-│       └── categorias.py # Endpoints CRUD de /categorias
+│       ├── productos.py   # Endpoints CRUD de /productos
+│       ├── categorias.py  # Endpoints CRUD de /categorias
+│       ├── estudiantes.py # Endpoints CRUD de /estudiantes
+│       └── estadisticas.py # Estadísticas de estudiantes (GROUP BY)
 ├── alembic/
 │   ├── env.py           # Conecta Alembic con la config y los modelos
 │   └── versions/        # Archivos de migración
@@ -181,7 +183,9 @@ api-tienda/
 ├── tests/
 │   ├── conftest.py      # Base tienda_test, migraciones, rollback por test
 │   ├── test_productos.py
-│   └── test_categorias.py
+│   ├── test_categorias.py
+│   ├── test_estudiantes.py
+│   └── test_estadisticas.py
 ├── pytest.ini           # Configuración de pytest
 ├── .env.example         # Plantilla de variables de entorno
 ├── requirements.txt     # Dependencias de la app
@@ -248,3 +252,34 @@ indica una categoría que no existe, la API responde **422**.
 - Los espacios al inicio y al final de los nombres se eliminan.
 - Al borrar una categoría, sus productos **no** se borran: quedan con
   `categoria_id = null` (`ON DELETE SET NULL`).
+
+### Estudiantes
+
+| Método   | Ruta                  | Descripción                         | Respuesta |
+|----------|-----------------------|-------------------------------------|-----------|
+| `GET`    | `/estudiantes/`       | Listar estudiantes (ordenados por id) | 200     |
+| `GET`    | `/estudiantes/{id}`   | Obtener un estudiante               | 200 / 404 |
+| `POST`   | `/estudiantes/`       | Crear un estudiante                 | 201 / 422 |
+| `PUT`    | `/estudiantes/{id}`   | Actualizar un estudiante            | 200 / 404 / 422 |
+| `DELETE` | `/estudiantes/{id}`   | Eliminar un estudiante              | 204 / 404 |
+
+Rangos válidos (los comprueba la API con 422 y también la base con `CHECK`):
+edad 16-35, semestre 1-10, promedio 0.00-5.00, horas_estudio 0-40 (por
+semana), asistencia 0-100 (%).
+
+### Estadísticas (para gráficas)
+
+Todas responden con el mismo formato, pensado para consumirlo fácilmente
+desde Flutter: `[{"etiqueta": "Medicina", "valor": 30}, ...]`. Los conteos
+son enteros y los promedios/porcentajes, decimales. Sin datos, devuelven `[]`.
+
+| Ruta (`GET`)                                       | Valor                                   | Orden |
+|----------------------------------------------------|-----------------------------------------|-------|
+| `/estudiantes/estadisticas/por-carrera`            | cantidad de estudiantes                 | mayor a menor |
+| `/estudiantes/estadisticas/por-edad`               | cantidad de estudiantes                 | por edad |
+| `/estudiantes/estadisticas/por-semestre`           | cantidad de estudiantes                 | por semestre |
+| `/estudiantes/estadisticas/por-ciudad`             | cantidad (solo las 10 primeras)         | mayor a menor |
+| `/estudiantes/estadisticas/promedio-por-carrera`   | promedio medio, redondeado a 2 decimales | mayor a menor |
+| `/estudiantes/estadisticas/riesgo-por-carrera`     | % de estudiantes con promedio < 3.0     | mayor a menor |
+
+En caso de empate se ordena alfabéticamente, para que el resultado sea siempre el mismo.

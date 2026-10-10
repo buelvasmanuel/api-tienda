@@ -27,3 +27,29 @@ class ProductoCreate(BaseModel):
 class ProductoOut(ProductoCreate):
     id: int
     model_config = ConfigDict(from_attributes=True)
+
+
+class EstudianteCreate(BaseModel):
+    nombre: str = Field(min_length=1, max_length=50)
+    apellido: str = Field(min_length=1, max_length=50)
+    edad: int = Field(ge=16, le=35)
+    carrera: str = Field(min_length=1, max_length=100)
+    semestre: int = Field(ge=1, le=10)
+    promedio: Decimal = Field(ge=0, le=5, max_digits=3, decimal_places=2)
+    ciudad: str = Field(min_length=1, max_length=100)
+    horas_estudio: int = Field(ge=0, le=40, description="Horas de estudio por semana")
+    asistencia: int = Field(ge=0, le=100, description="Porcentaje de asistencia")
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
+class EstudianteOut(EstudianteCreate):
+    id: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EstadisticaOut(BaseModel):
+    """Formato común de todas las estadísticas (fácil de consumir en Flutter)."""
+
+    etiqueta: str
+    valor: int | float
