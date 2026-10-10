@@ -49,8 +49,20 @@ cd api-tienda
 
 python -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # en un servidor: pip install -r requirements.txt
 ```
+
+### Dependencias: `requirements.txt` frente a `requirements-dev.txt`
+
+| Archivo                | Qué contiene                                          | Dónde se instala |
+|------------------------|-------------------------------------------------------|------------------|
+| `requirements.txt`     | Lo que la API necesita para **funcionar** (FastAPI, SQLAlchemy, PyMySQL, Alembic...) | Producción y desarrollo |
+| `requirements-dev.txt` | Empieza con `-r requirements.txt` (incluye todo lo anterior) y añade herramientas de **desarrollo** (pytest, httpx2) | Solo en tu máquina / CI |
+
+Así el servidor no instala herramientas que nunca usa. Las dependencias se
+añaden **a mano**, con versión fijada (`paquete==X.Y.Z`), en el archivo que
+corresponda; no se regeneran con `pip freeze`, que mezclaría las de desarrollo
+con las de producción.
 
 ## Crear la base de datos en MariaDB
 
@@ -166,9 +178,42 @@ api-tienda/
 │   ├── env.py           # Conecta Alembic con la config y los modelos
 │   └── versions/        # Archivos de migración
 ├── alembic.ini          # Configuración de Alembic (sin credenciales)
+├── tests/
+│   ├── conftest.py      # Base tienda_test, migraciones, rollback por test
+│   ├── test_productos.py
+│   └── test_categorias.py
+├── pytest.ini           # Configuración de pytest
 ├── .env.example         # Plantilla de variables de entorno
-└── requirements.txt     # Dependencias
+├── requirements.txt     # Dependencias de la app
+└── requirements-dev.txt # Dependencias de desarrollo (tests)
 ```
+
+## Tests
+
+Los tests usan una base de datos **separada**, `tienda_test`, para no tocar
+los datos reales. Créala una vez (en `sudo mariadb`):
+
+```sql
+CREATE DATABASE tienda_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+GRANT ALL PRIVILEGES ON tienda_test.* TO 'tienda_user'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+Y ejecuta, con las dependencias de desarrollo instaladas:
+
+```bash
+pytest          # resumen
+pytest -v       # un renglón por test
+```
+
+Cómo funcionan (`tests/conftest.py`):
+
+- Usan las credenciales del `.env` pero **siempre** la base `tienda_test`; si el
+  nombre no terminara en `_test`, los tests se niegan a ejecutarse.
+- Al empezar se aplican las migraciones (`alembic upgrade head`) y al terminar
+  se deshacen (`downgrade base`): se prueba el mismo esquema que en producción.
+- Cada test corre dentro de una transacción que se deshace al final
+  (rollback), así que todos empiezan con la base vacía y no dependen del orden.
 
 ## Endpoints
 
