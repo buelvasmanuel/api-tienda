@@ -2,4 +2,5 @@
 
 Faker==40.43.0
 httpx2==2.13.1
+matplotlib==3.11.2
 pytest==9.1.1

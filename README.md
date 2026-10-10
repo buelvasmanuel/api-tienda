@@ -57,7 +57,7 @@ pip install -r requirements-dev.txt   # en un servidor: pip install -r requireme
 | Archivo                | Qué contiene                                          | Dónde se instala |
 |------------------------|-------------------------------------------------------|------------------|
 | `requirements.txt`     | Lo que la API necesita para **funcionar** (FastAPI, SQLAlchemy, PyMySQL, Alembic...) | Producción y desarrollo |
-| `requirements-dev.txt` | Empieza con `-r requirements.txt` (incluye todo lo anterior) y añade herramientas de **desarrollo** (pytest, httpx2, Faker) | Solo en tu máquina / CI |
+| `requirements-dev.txt` | Empieza con `-r requirements.txt` (incluye todo lo anterior) y añade herramientas de **desarrollo** (pytest, httpx2, Faker, matplotlib) | Solo en tu máquina / CI |
 
 Así el servidor no instala herramientas que nunca usa. Las dependencias se
 añaden **a mano**, con versión fijada (`paquete==X.Y.Z`), en el archivo que
@@ -192,6 +192,62 @@ recortado a [0.00, 5.00]. Con 300 estudiantes, alrededor del 18-21 % queda en
 riesgo. La edad depende del semestre, y la asistencia está algo relacionada
 con las horas de estudio; la edad y la ciudad **no** influyen en el promedio.
 
+## Gráficas
+
+Con la API en marcha y datos cargados, `scripts/graficas.py` consulta los
+endpoints de estadísticas y guarda un PNG por cada uno en `graficas/`
+(carpeta ignorada por Git):
+
+```bash
+python -m scripts.graficas                               # API en http://127.0.0.1:8000
+python -m scripts.graficas --url http://127.0.0.1:8001   # otra URL
+```
+
+## Conectar desde Flutter
+
+1. Arranca la API escuchando en **todas** las interfaces de red (no solo en
+   `127.0.0.1`, que únicamente acepta conexiones del propio PC):
+
+   ```bash
+   uvicorn app.main:app --reload --host 0.0.0.0
+   ```
+
+2. Usa la URL base según dónde corra la app:
+
+   | Dónde corre Flutter     | URL base                     |
+   |-------------------------|------------------------------|
+   | Emulador de Android     | `http://10.0.2.2:8000`       |
+   | Celular real (misma WiFi que el PC) | `http://<IP-del-PC>:8000` |
+   | Flutter Web / escritorio en el mismo PC | `http://127.0.0.1:8000` |
+
+   `10.0.2.2` es una dirección especial del emulador de Android que apunta al
+   PC anfitrión (dentro del emulador, `127.0.0.1` es el propio emulador).
+
+3. Para ver la IP del PC en Linux:
+
+   ```bash
+   ip -4 addr
+   ```
+
+   Busca la interfaz de la WiFi (suele llamarse `wlan0` o `wlp…`) y la línea
+   `inet 192.168.x.y/24`: la IP es `192.168.x.y` (sin el `/24`).
+
+**Problemas típicos:**
+
+- **Android bloquea `http://` (sin s)** desde Android 9. Para desarrollo, en
+  `android/app/src/main/AndroidManifest.xml` añade al `<application>`:
+  `android:usesCleartextTraffic="true"`.
+- **Permiso de Internet:** en el mismo manifest, dentro de `<manifest>`:
+  `<uses-permission android:name="android.permission.INTERNET"/>` (en modo
+  debug ya viene, pero en *release* hace falta).
+- **Cortafuegos:** si el celular no conecta pero el PC sí, abre el puerto
+  (`sudo ufw allow 8000/tcp`, o con firewalld:
+  `sudo firewall-cmd --add-port=8000/tcp`).
+- **CORS** solo afecta a **Flutter Web** (lo aplican los navegadores, no las
+  apps nativas). La API ya permite cualquier origen (`allow_origins=["*"]` en
+  `app/main.py`), **solo para desarrollo**: en producción hay que listar los
+  orígenes permitidos.
+
 ## Estructura del proyecto
 
 ```
@@ -208,7 +264,8 @@ api-tienda/
 │       ├── estudiantes.py # Endpoints CRUD de /estudiantes
 │       └── estadisticas.py # Estadísticas de estudiantes (GROUP BY)
 ├── scripts/
-│   └── seed_estudiantes.py # Genera estudiantes de prueba (Faker)
+│   ├── seed_estudiantes.py # Genera estudiantes de prueba (Faker)
+│   └── graficas.py      # PNG de las estadísticas (matplotlib)
 ├── alembic/
 │   ├── env.py           # Conecta Alembic con la config y los modelos
 │   └── versions/        # Archivos de migración
@@ -222,7 +279,7 @@ api-tienda/
 ├── pytest.ini           # Configuración de pytest
 ├── .env.example         # Plantilla de variables de entorno
 ├── requirements.txt     # Dependencias de la app
-└── requirements-dev.txt # Dependencias de desarrollo (tests, seed)
+└── requirements-dev.txt # Dependencias de desarrollo (tests, seed, gráficas)
 ```
 
 ## Tests
