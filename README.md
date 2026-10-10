@@ -160,7 +160,8 @@ api-tienda/
 │   ├── models.py        # Modelos de SQLAlchemy (tablas)
 │   ├── schemas.py       # Esquemas de Pydantic (validación y respuesta)
 │   └── routers/
-│       └── productos.py # Endpoints CRUD de /productos
+│       ├── productos.py # Endpoints CRUD de /productos
+│       └── categorias.py # Endpoints CRUD de /categorias
 ├── alembic/
 │   ├── env.py           # Conecta Alembic con la config y los modelos
 │   └── versions/        # Archivos de migración
@@ -171,6 +172,8 @@ api-tienda/
 
 ## Endpoints
 
+### Productos
+
 | Método   | Ruta                     | Descripción              | Respuesta |
 |----------|--------------------------|--------------------------|-----------|
 | `GET`    | `/`                      | Comprobar que la API funciona | 200  |
@@ -179,3 +182,24 @@ api-tienda/
 | `POST`   | `/productos/`            | Crear un producto        | 201 / 422 |
 | `PUT`    | `/productos/{id}`        | Actualizar un producto   | 200 / 404 / 422 |
 | `DELETE` | `/productos/{id}`        | Eliminar un producto     | 204 / 404 |
+
+Un producto puede pertenecer a una categoría (`categoria_id`, opcional). Si se
+indica una categoría que no existe, la API responde **422**.
+
+### Categorías
+
+| Método   | Ruta                          | Descripción                    | Respuesta |
+|----------|-------------------------------|--------------------------------|-----------|
+| `GET`    | `/categorias/`                | Listar categorías              | 200       |
+| `GET`    | `/categorias/{id}`            | Obtener una categoría          | 200 / 404 |
+| `GET`    | `/categorias/{id}/productos`  | Productos de una categoría     | 200 / 404 |
+| `POST`   | `/categorias/`                | Crear una categoría            | 201 / 409 / 422 |
+| `PUT`    | `/categorias/{id}`            | Actualizar una categoría       | 200 / 404 / 409 / 422 |
+| `DELETE` | `/categorias/{id}`            | Eliminar una categoría         | 204 / 404 |
+
+- El nombre de la categoría es **único** y la comparación no distingue
+  mayúsculas ni acentos (collation `utf8mb4_unicode_ci`): si existe "Ropa",
+  crear "ropa" o "RÓPA" devuelve **409 Conflict**.
+- Los espacios al inicio y al final de los nombres se eliminan.
+- Al borrar una categoría, sus productos **no** se borran: quedan con
+  `categoria_id = null` (`ON DELETE SET NULL`).
