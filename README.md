@@ -57,7 +57,7 @@ pip install -r requirements-dev.txt   # en un servidor: pip install -r requireme
 | Archivo                | Qué contiene                                          | Dónde se instala |
 |------------------------|-------------------------------------------------------|------------------|
 | `requirements.txt`     | Lo que la API necesita para **funcionar** (FastAPI, SQLAlchemy, PyMySQL, Alembic...) | Producción y desarrollo |
-| `requirements-dev.txt` | Empieza con `-r requirements.txt` (incluye todo lo anterior) y añade herramientas de **desarrollo** (pytest, httpx2) | Solo en tu máquina / CI |
+| `requirements-dev.txt` | Empieza con `-r requirements.txt` (incluye todo lo anterior) y añade herramientas de **desarrollo** (pytest, httpx2, Faker) | Solo en tu máquina / CI |
 
 Así el servidor no instala herramientas que nunca usa. Las dependencias se
 añaden **a mano**, con versión fijada (`paquete==X.Y.Z`), en el archivo que
@@ -161,6 +161,37 @@ uvicorn app.main:app --reload
 
 Si el puerto 8000 está ocupado, puedes usar otro con `--port 8001`.
 
+## Datos de prueba: estudiantes
+
+`scripts/seed_estudiantes.py` llena la tabla `estudiantes` (de la base del
+`.env`) con datos realistas generados con Faker (`es_CO`) y una semilla fija:
+siempre salen los mismos estudiantes.
+
+```bash
+python -m scripts.seed_estudiantes                 # 300 estudiantes
+python -m scripts.seed_estudiantes --cantidad 500  # otra cantidad
+python -m scripts.seed_estudiantes --reset         # borra los existentes y genera de nuevo
+```
+
+Si ya hay estudiantes y no usas `--reset`, el script no inserta nada (para no
+duplicar). Se ejecuta con `python -m` desde la raíz para que encuentre el
+paquete `app`.
+
+Los datos **no son independientes**: están pensados para minería de datos
+(predecir el riesgo académico, promedio < 3.0). El promedio se calcula así:
+
+```
+promedio = 3.40
+         + 0.035 × (horas_estudio − 14)     # más horas → mejor promedio
+         + 0.02  × (asistencia − 82)        # más asistencia → mejor promedio
+         + efecto de la carrera             # entre −0.15 (Medicina) y +0.12 (Diseño Gráfico)
+         + ruido ~ Normal(0, 0.30)          # lo que ningún modelo puede explicar
+```
+
+recortado a [0.00, 5.00]. Con 300 estudiantes, alrededor del 18-21 % queda en
+riesgo. La edad depende del semestre, y la asistencia está algo relacionada
+con las horas de estudio; la edad y la ciudad **no** influyen en el promedio.
+
 ## Estructura del proyecto
 
 ```
@@ -176,6 +207,8 @@ api-tienda/
 │       ├── categorias.py  # Endpoints CRUD de /categorias
 │       ├── estudiantes.py # Endpoints CRUD de /estudiantes
 │       └── estadisticas.py # Estadísticas de estudiantes (GROUP BY)
+├── scripts/
+│   └── seed_estudiantes.py # Genera estudiantes de prueba (Faker)
 ├── alembic/
 │   ├── env.py           # Conecta Alembic con la config y los modelos
 │   └── versions/        # Archivos de migración
@@ -189,7 +222,7 @@ api-tienda/
 ├── pytest.ini           # Configuración de pytest
 ├── .env.example         # Plantilla de variables de entorno
 ├── requirements.txt     # Dependencias de la app
-└── requirements-dev.txt # Dependencias de desarrollo (tests)
+└── requirements-dev.txt # Dependencias de desarrollo (tests, seed)
 ```
 
 ## Tests
