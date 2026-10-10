@@ -1,10 +1,8 @@
 from fastapi import FastAPI
 
-from app.database import Base, engine
 from app.routers import productos
 
-Base.metadata.create_all(bind=engine)  # crea las tablas si no existen
-
+# Las tablas se crean y modifican con migraciones de Alembic (alembic upgrade head).
 app = FastAPI(title="API Tienda")
 app.include_router(productos.router)
 

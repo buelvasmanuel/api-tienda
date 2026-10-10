@@ -92,7 +92,50 @@ Y rellena los valores:
 > ⚠️ **Nunca subas `.env` a Git.** Ya está incluido en `.gitignore`.
 > Comparte solo `.env.example`, que no lleva valores reales.
 
+## Migraciones (Alembic)
+
+Las tablas **no** se crean al arrancar la app: se gestionan con migraciones de
+[Alembic](https://alembic.sqlalchemy.org/). Alembic toma la URL de la base de
+`app/config.py`, así que usa el mismo `.env` que la API.
+
+Crear/actualizar las tablas a la última versión:
+
+```bash
+alembic upgrade head
+```
+
+Tras cambiar un modelo en `app/models.py`, genera una migración nueva,
+**revísala** en `alembic/versions/` y aplícala:
+
+```bash
+alembic revision --autogenerate -m "describe el cambio"
+alembic upgrade head
+```
+
+Otros comandos útiles:
+
+```bash
+alembic current      # versión en la que está la base
+alembic history      # lista de migraciones
+alembic check        # ¿hay cambios en los modelos sin migración?
+alembic downgrade -1 # deshace la última migración
+```
+
+Para trabajar contra otra base sin tocar `.env`, sobrescribe la variable en el
+comando (las variables de entorno tienen prioridad sobre `.env`):
+
+```bash
+DB_NAME=tienda_test alembic upgrade head
+```
+
+> **Base creada antes de usar Alembic:** si la tabla `productos` ya existía
+> (creada con `create_all`), no ejecutes `upgrade` (fallaría al intentar
+> crearla de nuevo). Marca la base como actualizada sin tocar los datos con
+> `alembic stamp 3adaaf027eed` y a partir de ahí usa `upgrade` con normalidad.
+
 ## Ejecutar
+
+Antes de la primera ejecución, aplica las migraciones (`alembic upgrade head`).
 
 Desde la **raíz del proyecto** (para que se encuentre el `.env`) y con el
 entorno virtual activado:
@@ -118,6 +161,10 @@ api-tienda/
 │   ├── schemas.py       # Esquemas de Pydantic (validación y respuesta)
 │   └── routers/
 │       └── productos.py # Endpoints CRUD de /productos
+├── alembic/
+│   ├── env.py           # Conecta Alembic con la config y los modelos
+│   └── versions/        # Archivos de migración
+├── alembic.ini          # Configuración de Alembic (sin credenciales)
 ├── .env.example         # Plantilla de variables de entorno
 └── requirements.txt     # Dependencias
 ```
