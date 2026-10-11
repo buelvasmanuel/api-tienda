@@ -95,7 +95,8 @@ def test_significado_de_cada_atributo():
     assert "el efecto, no con la causa" in reglas.significado("promedio", 1.0)
     assert "mejor promedio (r = 0,62)" in reglas.significado("asistencia", 0.62)
     assert "casi no se relaciona" in reglas.significado("semestre", -0.03)
-    assert "peor promedio" in reglas.significado("horas_estudio", -0.4)
+    assert "se asocian con peor promedio" in reglas.significado("horas_estudio", -0.4)
+    assert "se asocia con mejor" in reglas.significado("asistencia", 0.62)
 
 
 def test_explicacion_desde_cada_lado():
@@ -106,8 +107,10 @@ def test_explicacion_desde_cada_lado():
     desde_a = reglas.explicacion(ronda, mia, otra, "a")
     desde_b = reglas.explicacion(ronda, otra, mia, "b")
 
-    assert desde_a.startswith("Ganaste con asistencia: 92 % (percentil 81) frente a 70 % (percentil 22). Elegiste")
-    assert desde_b.startswith("El rival ganó con asistencia: 70 % (percentil 22) frente a 92 % (percentil 81). El rival eligió")
+    assert desde_a.startswith("Ganaste con asistencia: tu carta tiene 92 % (percentil 81) y la del rival, "
+                              "70 % (percentil 22). Elegiste")
+    assert desde_b.startswith("El rival ganó con asistencia: tu carta tiene 70 % (percentil 22) y la del rival, "
+                              "92 % (percentil 81). El rival eligió")
 
 
 # ---------- Crear y ver ----------

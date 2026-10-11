@@ -105,15 +105,17 @@ def significado(atributo: str, r: float) -> str:
     if atributo == "promedio":
         return ("El promedio es el resultado académico, lo que el modelo intenta predecir: "
                 "ganar con él es ganar con el efecto, no con la causa.")
-    nombre = {"asistencia": "La asistencia mide cuánto va a clase",
-              "horas_estudio": "Las horas de estudio miden cuánto estudia",
-              "semestre": "El semestre solo dice cuánto lleva en la carrera"}[atributo]
+    # (sujeto, forma del verbo en singular o plural)
+    sujeto, plural = {"asistencia": ("La asistencia mide cuánto va a clase", False),
+                      "horas_estudio": ("Las horas de estudio miden cuánto estudia", True),
+                      "semestre": ("El semestre solo dice cuánto lleva en la carrera", False)}[atributo]
     if abs(r) < 0.1:
-        return (f"{nombre}: «más alto» no es «mejor», porque casi no se relaciona con el promedio "
-                f"(r = {numero(r)}). Es ganar por un dato que no dice nada del rendimiento.")
+        return (f"{sujeto}: «más alto» no es «mejor», porque casi no se "
+                f"{'relacionan' if plural else 'relaciona'} con el promedio (r = {numero(r)}). "
+                "Es ganar por un dato que no dice nada del rendimiento.")
     sentido = "mejor" if r > 0 else "peor"
-    return (f"{nombre}; en estos datos se asocia con {sentido} promedio (r = {numero(r)}), "
-            "pero una asociación no garantiza el resultado en cada estudiante.")
+    return (f"{sujeto}; en estos datos se {'asocian' if plural else 'asocia'} con {sentido} promedio "
+            f"(r = {numero(r)}), pero una asociación no garantiza el resultado en cada estudiante.")
 
 
 def explicacion(ronda: dict, mia: dict, rival: dict, soy: str) -> str:
@@ -121,8 +123,10 @@ def explicacion(ronda: dict, mia: dict, rival: dict, soy: str) -> str:
     nombre = ATRIBUTOS[atributo].nombre.lower()
     yo = mia["atributos"][atributo]
     otro = rival["atributos"][atributo]
-    cifras = (f"{_formato(atributo, yo['valor'])} (percentil {yo['percentil']}) frente a "
-              f"{_formato(atributo, otro['valor'])} (percentil {otro['percentil']})")
+    # Siempre "tu carta… y la del rival…": así se entiende quién tenía qué,
+    # gane quien gane.
+    cifras = (f"tu carta tiene {_formato(atributo, yo['valor'])} (percentil {yo['percentil']}) y la del "
+              f"rival, {_formato(atributo, otro['valor'])} (percentil {otro['percentil']})")
     if ronda["ganador"] == "empate":
         inicio = f"Empate en {nombre}: {cifras}."
     elif ronda["ganador"] == soy:

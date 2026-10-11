@@ -71,7 +71,7 @@ se pueden comparar, pero «percentil 85» y «percentil 60» sí.
   "mi_carta": CartaOut,
   "carta_rival": CartaOut,
   "ganador": "yo",
-  "explicacion": "Ganaste con la asistencia: 92 % (percentil 81) frente a 70 % (percentil 22). La asistencia mide cuánto va a clase; en estos datos se asocia con mejor promedio (r = 0,62), pero ir a clase no garantiza aprender."
+  "explicacion": "Ganaste con asistencia: tu carta tiene 92 % (percentil 81) y la del rival, 70 % (percentil 22). Elegiste asistencia. La asistencia mide cuánto va a clase; en estos datos se asocia con mejor promedio (r = 0,62), pero una asociación no garantiza el resultado en cada estudiante."
 }
 ```
 `elegido_por` y `ganador`: `"yo"`, `"rival"` (y `"empate"` en `ganador`), siempre
