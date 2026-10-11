@@ -187,6 +187,9 @@ flutter run -d windows
 
 Alternativa en el navegador: `flutter run -d chrome`.
 
+Al abrir la app, pulse **«¿No tienes cuenta? Regístrate»** y cree un alias y
+una contraseña (mínimo 10 caracteres).
+
 **Celular Android por USB** (depuración USB activada; `adb` viene con Android Studio, en `%LOCALAPPDATA%\Android\Sdk\platform-tools`):
 
 ```bat
@@ -213,14 +216,15 @@ flutter run -d <id-del-celular> --dart-define=API_URL=http://127.0.0.1:8000
 ```bash
 sudo apt update
 sudo apt install python3 python3-venv python3-pip git mariadb-server \
-  clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+  clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev \
+  libsecret-1-dev
 sudo systemctl enable --now mariadb
 ```
 
 **Arch Linux:**
 
 ```bash
-sudo pacman -S python git mariadb clang cmake ninja pkgconf gtk3
+sudo pacman -S python git mariadb clang cmake ninja pkgconf gtk3 libsecret
 sudo mariadb-install-db --user=mysql --basedir=/usr --datadir=/var/lib/mysql
 sudo systemctl enable --now mariadb
 ```
@@ -290,6 +294,10 @@ cd ruta/a/app_estudiantes
 flutter pub get
 flutter run -d linux        # o: flutter run -d chrome
 ```
+
+Al abrir la app, pulse **«¿No tienes cuenta? Regístrate»** y cree un alias y
+una contraseña (mínimo 10 caracteres). En Linux la sesión se guarda en el
+llavero del sistema (`libsecret`).
 
 **Celular Android por USB:**
 
