@@ -9,7 +9,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app import limites
 from app.config import settings
-from app.routers import auth, estadisticas, estudiantes, prediccion, usuarios
+from app.routers import auth, estadisticas, estudiantes, laboratorio, prediccion, usuarios
 
 # Logs de la app (eventos de seguridad: bloqueos, reuso de tokens...). uvicorn
 # solo configura sus propios loggers; sin esto los INFO de "app.*" no se ven.
@@ -68,6 +68,7 @@ app.include_router(usuarios.router)
 app.include_router(estudiantes.router)
 app.include_router(estadisticas.router)
 app.include_router(prediccion.router)
+app.include_router(laboratorio.router)
 
 
 @app.get("/")

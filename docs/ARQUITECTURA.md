@@ -1,12 +1,13 @@
 # Arquitectura de `api-tienda`
 
 > Estado verificado contra el código. Primera verificación: **2026-10-11**
-> (commit `52ddbf5`, §10). Última actualización: fin de la **Fase 1
-> (seguridad)** del plan de `PROPUESTA_ESTUDIANTES_2.0.md`. Si el código
+> (commit `52ddbf5`, §10). Última actualización: **Fase 4 (Laboratorio),
+> parte backend** del plan de `PROPUESTA_ESTUDIANTES_2.0.md`. Si el código
 > cambia, este documento se actualiza en el mismo commit.
 >
-> El contrato de autenticación con la app Flutter está aparte, en
-> [CONTRATO_AUTH.md](CONTRATO_AUTH.md).
+> Los contratos con la app Flutter están aparte:
+> [CONTRATO_AUTH.md](CONTRATO_AUTH.md) (v1.1) y
+> [CONTRATO_LABORATORIO.md](CONTRATO_LABORATORIO.md) (v1).
 
 ---
 
@@ -43,6 +44,9 @@ api-tienda/
 │   ├── models.py          # Estudiante, Usuario, SesionRefresh
 │   ├── schemas.py         # Esquemas Pydantic (estudiantes, predicción, auth)
 │   ├── ml.py              # Variables, pipeline y utilidades del modelo (compartido script/API)
+│   ├── modelo_juego.py    # Modelo del juego: inferencia y explicación exacta desde el JSON
+│   ├── modelo_juego.json  # Logística congelada (versión 2026-10-11), versionada en git
+│   ├── laboratorio.py     # Reglas del rescate: intervenciones, óptimo, estrellas
 │   ├── reloj.py           # reloj.ahora(): UTC sin zona, sustituible en tests
 │   ├── seguridad.py       # Argon2id, PASETO v4.local, refresh opacos (sin BD)
 │   ├── sesiones.py        # Familias de refresh en la BD: abrir, rotar, revocar, listar
@@ -54,16 +58,18 @@ api-tienda/
 │       ├── usuarios.py    # /usuarios
 │       ├── estudiantes.py # escrituras solo admin
 │       ├── estadisticas.py
-│       └── prediccion.py  # CargadorModelo (recarga por mtime, con lock)
+│       ├── prediccion.py  # CargadorModelo (build) + explicación y lote (modelo del juego)
+│       └── laboratorio.py # /laboratorio (con sesión)
 ├── alembic/versions/      # 6 migraciones (§3.2)
 ├── scripts/
 │   ├── seed_estudiantes.py  # Faker("es_CO"), semilla 42, --cantidad, --reset
 │   ├── graficas.py          # PNG por estadística (llama a la API con httpx2)
 │   ├── entrenar_modelo.py   # CV estratificada 5 particiones, elige por F2, --sin-graficas
+│   ├── congelar_modelo_juego.py  # regenera app/modelo_juego.json (con commit)
 │   ├── generar_clave.py     # valor para CLAVE_TOKENS
 │   └── crear_usuario.py     # alias + --rol; única forma de crear el primer admin
-├── tests/                 # 294 tests (§8)
-├── docs/                  # ARQUITECTURA.md (este archivo), CONTRATO_AUTH.md
+├── tests/                 # 353 tests (§8)
+├── docs/                  # ARQUITECTURA.md (este archivo), CONTRATO_AUTH.md, CONTRATO_LABORATORIO.md
 ├── .github/workflows/tests.yml  # CI: pytest con mariadb:lts y mysql:8.4
 ├── alembic.ini, pytest.ini, render.yaml, .python-version (3.14.7)
 ├── requirements.txt, requirements-dev.txt, .env.example
@@ -232,7 +238,20 @@ calculadas con `GROUP BY`.
 | POST | `/prediccion/riesgo` | `PrediccionEntrada` | `PrediccionSalida` | 422 (validación o carrera desconocida con `detail = {"mensaje", "carreras_validas"}`), 503 |
 | GET | `/prediccion/metricas` | — | `dict` sin esquema (`metricas.json` + `carreras_validas`) | 503 |
 
-### 4.6 Esquemas (Pydantic 2.14)
+### 4.6 Modelo del juego y Laboratorio
+
+Detalle en CONTRATO_LABORATORIO.md. Todas las respuestas llevan `modelo`
+(nombre y versión) y `aviso` (estimación, correlación y no causalidad).
+
+| Método | Ruta | Acceso | Respuesta |
+|---|---|---|---|
+| POST | `/prediccion/explicacion` | público | `ExplicacionOut` (base, logit, aportes con peso y efecto); 422 |
+| POST | `/prediccion/riesgo/lote` | público | `LoteRiesgoOut` (1–50, mismo orden); 422 con `indices` si hay carreras desconocidas |
+| GET | `/laboratorio/casos` | con sesión | `CasosOut` (riesgo ≥ 0.6 y rescatables con 5 fichas, del más grave al más leve) |
+| GET | `/laboratorio/casos/{id}` | con sesión | `CasoOut` (sin promedio); 404 `caso_no_disponible` |
+| POST | `/laboratorio/casos/{id}/resolver` | con sesión | `ResultadoRescateOut` (estrellas calculadas en el servidor, solución óptima); 404, 422 `presupuesto_superado` |
+
+### 4.7 Esquemas (Pydantic 2.14)
 
 | Esquema | Campos | Notas |
 |---|---|---|
@@ -301,8 +320,24 @@ calculadas con `GROUP BY`.
 - `CargadorModelo` carga el `.joblib` una vez y lo recarga si cambia su `mtime`.
 - Último entrenamiento local (2026-10-10, 300 estudiantes, 18,3 % en riesgo):
   ganó la logística; en prueba accuracy 0,917, recall 0,727, F2 0,741.
-- Decisión 2026-10-11: el modelo **del juego** se congela como regresión
-  logística (pendiente: Fase 4).
+- **Modelo del juego** (Fase 4): regresión logística congelada en
+  `app/modelo_juego.json` (versión `2026-10-11`): intercepto, media,
+  desviación y coeficiente de cada numérica, y coeficiente y frecuencia de
+  cada carrera, más 8 muestras de control con la probabilidad de
+  scikit-learn. Se congeló con los mismos datos (huella MD5 idéntica en local
+  y Aiven), el mismo reparto (240/60, semilla 42) y el mismo pipeline que el
+  modelo del build: hoy los dos coinciden (diferencia máxima 2·10⁻¹⁶). La
+  inferencia es Python puro (sin pickle).
+- Explicación exacta: `logit = base + Σ coef_j · (z_j − media_j)`, con
+  `base` = logit del estudiante medio. Coincide con
+  `shap.LinearExplainer` (diferencia 0 en los datos reales; los tests lo
+  comprueban con datos sintéticos).
+- Rescate: 12 combinaciones caben en 5 fichas; con los datos actuales hay
+  70 estudiantes con riesgo ≥ 0.6, de los que 63 son rescatables (óptimos de
+  1 a 5 fichas; 2 es lo más frecuente).
+- Hallazgo para un caso «Experto»: el coeficiente de `edad` (−0,65) es un
+  patrón espurio de esta muestra de 300 (el seed no hace depender el
+  promedio de la edad).
 
 ---
 
@@ -328,7 +363,8 @@ fijada (comprobado al cerrar la Fase 1).
 | otras | anyio 4.15.1, h11 0.16.0, idna 3.20, click 8.5.0, cffi 2.1.1, pycparser 3.11, annotated-types 0.8.0, typing_extensions 4.16.0, typing-inspection 0.4.4 | transitivas |
 
 **`requirements-dev.txt`**: `-r requirements.txt` + Faker 40.43.0,
-httpx2 2.13.1, matplotlib 3.11.2, pytest 9.1.1.
+httpx2 2.13.1, matplotlib 3.11.2, pytest 9.1.1, shap 0.53.0 (slicer 0.0.8,
+tqdm 4.70.1; sin numba). `shap` solo valida la explicación en los tests.
 
 ---
 
@@ -350,9 +386,10 @@ ningún valor** (`hide_input_in_errors`): antes, pydantic imprimía el valor
 inválido o, si faltaba una variable, el resto de variables, y eso acababa en
 los logs de Render.
 
-**Tests** (294; `pytest -q` en ~9 s; también pasan contra MySQL 8.4): auth 67,
-estudiantes 42, seguridad 33, refresh 33, límites 34, usuarios 28, predicción
-22, estadísticas 20, modelo de usuarios 14, migraciones 1.
+**Tests** (353; `pytest -q` en ~11 s; también pasan contra MySQL 8.4): auth 67,
+estudiantes 42, laboratorio 35, límites 34, seguridad 33, refresh 33,
+usuarios 28, predicción 22, estadísticas 20, predicción del juego 15, modelo de
+usuarios 14, modelo del juego 9, migraciones 1.
 
 - `conftest.py` fija antes de importar la app una `CLAVE_TOKENS` de pruebas,
   Argon2 barato (`t=1, m=64 KiB`), `CORS_ORIGINS` e `IP_CLIENTE`.
@@ -444,9 +481,12 @@ esquemas sin `extra="forbid"` en auth.
 
 1. **IP del cliente sin verificar en producción** (§9): hasta entonces, el
    límite por IP se puede esquivar.
-2. **El modelo cambia en cada deploy**: reentrenar en el build puede cambiar
-   métricas, coeficientes e incluso el tipo de modelo sin un commit. Se aborda
-   en la Fase 4 (modelo del juego congelado como logística).
+2. **El modelo de la pestaña Predicción cambia en cada deploy** (reentrenar
+   en el build puede cambiar métricas, coeficientes e incluso el tipo de
+   modelo sin un commit). El juego ya no depende de eso (modelo congelado),
+   pero si cambian los datos o gana el árbol, Predicción y Laboratorio darán
+   probabilidades distintas para la misma entrada. `congelar_modelo_juego`
+   avisa si el modelo del build deja de ser la logística.
 3. **Tras un logout o un reuso detectado, el access sigue valiendo hasta
    15 min** (decisión de diseño: solo `logout-todo`, cambio de contraseña y
    desactivación cortan los access al instante).

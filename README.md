@@ -64,7 +64,7 @@ pip install -r requirements-dev.txt   # en un servidor: pip install -r requireme
 | Archivo                | Qué contiene                                          | Dónde se instala |
 |------------------------|-------------------------------------------------------|------------------|
 | `requirements.txt`     | Lo que la API necesita para **funcionar** (FastAPI, SQLAlchemy, PyMySQL, Alembic, scikit-learn, pandas, joblib...) | Producción y desarrollo |
-| `requirements-dev.txt` | Empieza con `-r requirements.txt` (incluye todo lo anterior) y añade herramientas de **desarrollo** (pytest, httpx2, Faker, matplotlib) | Solo en tu máquina / CI |
+| `requirements-dev.txt` | Empieza con `-r requirements.txt` (incluye todo lo anterior) y añade herramientas de **desarrollo** (pytest, httpx2, Faker, matplotlib, shap) | Solo en tu máquina / CI |
 
 Así el servidor no instala herramientas que nunca usa. Las dependencias se
 añaden **a mano**, con versión fijada (`paquete==X.Y.Z`), en el archivo que
@@ -364,6 +364,28 @@ acabar en una materia perdida o en deserción, mientras que alertar de más
 > ti. Además, un `.joblib` solo está garantizado con la misma versión de
 > scikit-learn con la que se entrenó (`version_sklearn` en `metricas.json`).
 
+### Modelo del juego (congelado) y explicación
+
+El juego (Laboratorio de Rescate) no usa el `.joblib` del build, que cambia en
+cada deploy, sino una **regresión logística congelada** en
+`app/modelo_juego.json`: medias, desviaciones y coeficientes, sin pickle. Se
+congeló con los mismos datos, el mismo reparto entrenamiento/prueba y el mismo
+pipeline que el modelo del build, así que hoy los dos dan la misma
+probabilidad (diferencia máxima en los 300 estudiantes: 2·10⁻¹⁶).
+
+`POST /prediccion/explicacion` devuelve el **aporte exacto** de cada variable:
+en el espacio escalado del modelo, `coef × (x − media)`, de modo que
+`base + Σ aportes = logit`. Para un modelo lineal es exactamente lo que
+calcula SHAP; `tests/test_modelo_juego.py` lo comprueba con la librería `shap`
+(solo en desarrollo).
+
+Para volver a congelarlo (por ejemplo, con datos nuevos), a propósito y con
+commit:
+
+```bash
+python -m scripts.congelar_modelo_juego --version 2026-11-02
+```
+
 ## Despliegue (Aiven + Render)
 
 En producción la base es un **MySQL 8 gratis en [Aiven](https://aiven.io)** y la
@@ -422,6 +444,9 @@ api-tienda/
 │   ├── models.py        # Modelos de SQLAlchemy (tablas)
 │   ├── schemas.py       # Esquemas de Pydantic (validación y respuesta)
 │   ├── ml.py            # Variables y Pipeline del modelo (compartido script/API)
+│   ├── modelo_juego.py  # Modelo del juego (logística congelada) y explicación exacta
+│   ├── modelo_juego.json # Parámetros congelados del modelo del juego (versión 2026-10-11)
+│   ├── laboratorio.py   # Reglas del rescate: intervenciones, solución óptima, estrellas
 │   ├── reloj.py         # Hora UTC en un solo sitio (los tests la adelantan)
 │   ├── seguridad.py     # Argon2id, PASETO v4.local y refresh tokens (sin BD)
 │   ├── sesiones.py      # Familias de refresh tokens en la BD
@@ -433,11 +458,13 @@ api-tienda/
 │       ├── usuarios.py    # /usuarios: gestión por docentes y admins
 │       ├── estudiantes.py # Endpoints CRUD de /estudiantes
 │       ├── estadisticas.py # Estadísticas de estudiantes (GROUP BY)
-│       └── prediccion.py  # Predicción de riesgo académico
+│       ├── prediccion.py  # Predicción, explicación y lote
+│       └── laboratorio.py # /laboratorio: casos de rescate
 ├── scripts/
 │   ├── seed_estudiantes.py # Genera estudiantes de prueba (Faker)
 │   ├── graficas.py      # PNG de las estadísticas (matplotlib)
 │   ├── entrenar_modelo.py # Entrena el modelo de riesgo (scikit-learn)
+│   ├── congelar_modelo_juego.py # Regenera app/modelo_juego.json (a propósito, con commit)
 │   ├── generar_clave.py # Clave nueva para CLAVE_TOKENS
 │   └── crear_usuario.py # Crea usuarios con rol (el primer admin)
 ├── alembic/
@@ -456,7 +483,10 @@ api-tienda/
 │   ├── test_limites.py  # Límite por IP, cabeceras de seguridad, CORS, configuración
 │   ├── test_estudiantes.py
 │   ├── test_estadisticas.py
-│   └── test_prediccion.py
+│   ├── test_prediccion.py
+│   ├── test_prediccion_juego.py # /prediccion/explicacion y /riesgo/lote
+│   ├── test_modelo_juego.py # Inferencia propia = scikit-learn; aportes = SHAP
+│   └── test_laboratorio.py # Reglas del rescate y /laboratorio
 ├── docs/
 │   ├── ARQUITECTURA.md  # Estado verificado del backend y deuda técnica
 │   └── CONTRATO_AUTH.md # Contrato de autenticación con la app Flutter
@@ -568,3 +598,16 @@ En caso de empate se ordena alfabéticamente, para que el resultado sea siempre 
 |--------|-------------------------|-----------------------------------------------|-----------|
 | `POST` | `/prediccion/riesgo`    | Predice si un estudiante está en riesgo       | 200 / 422 / 503 |
 | `GET`  | `/prediccion/metricas`  | Métricas del modelo y carreras válidas        | 200 / 503 |
+| `POST` | `/prediccion/explicacion` | Probabilidad y aporte exacto de cada variable (modelo del juego) | 200 / 422 |
+| `POST` | `/prediccion/riesgo/lote` | Hasta 50 predicciones de una vez (modelo del juego) | 200 / 422 |
+
+### Laboratorio de Rescate (con sesión)
+
+Modo 3 del juego. Contrato completo en
+[docs/CONTRATO_LABORATORIO.md](docs/CONTRATO_LABORATORIO.md).
+
+| Método | Ruta | Descripción | Respuesta |
+|--------|------|-------------|-----------|
+| `GET`  | `/laboratorio/casos` | Estudiantes reales con riesgo ≥ 60 % rescatables con 5 fichas | 200 / 401 |
+| `GET`  | `/laboratorio/casos/{id}` | Datos del caso, explicación e intervenciones | 200 / 401 / 404 |
+| `POST` | `/laboratorio/casos/{id}/resolver` | Evalúa las intervenciones; el servidor calcula las estrellas | 200 / 401 / 404 / 422 |

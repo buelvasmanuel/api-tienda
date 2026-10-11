@@ -1,0 +1,154 @@
+{
+  "version": "2026-10-11",
+  "nombre": "Regresión Logística (juego)",
+  "descripcion": {
+    "entrenamiento": {
+      "estudiantes": 240,
+      "en_riesgo": 44
+    },
+    "total_estudiantes": 300,
+    "huella_datos": "67bc556b03d62223183ee71d57dcf54e",
+    "semilla": 42,
+    "umbral_riesgo_promedio": 3.0,
+    "version_sklearn": "1.9.1"
+  },
+  "intercepto": -1.6735661535785062,
+  "numericas": {
+    "horas_estudio": {
+      "media": 14.054166666666667,
+      "desviacion": 6.100647449702003,
+      "coef": -1.5584814701922765
+    },
+    "asistencia": {
+      "media": 81.55,
+      "desviacion": 11.342288128944706,
+      "coef": -2.071257287983667
+    },
+    "semestre": {
+      "media": 4.945833333333334,
+      "desviacion": 2.7645794084373043,
+      "coef": -0.08893059758554084
+    },
+    "edad": {
+      "media": 19.929166666666667,
+      "desviacion": 2.983144197915273,
+      "coef": -0.6519622118448394
+    }
+  },
+  "carreras": {
+    "Administración": {
+      "coef": -0.7166382515456005,
+      "frecuencia": 0.14583333333333334
+    },
+    "Arquitectura": {
+      "coef": 0.7921320159533136,
+      "frecuencia": 0.075
+    },
+    "Contaduría": {
+      "coef": -0.5747865022122848,
+      "frecuencia": 0.12083333333333333
+    },
+    "Derecho": {
+      "coef": 0.9393934018564276,
+      "frecuencia": 0.15833333333333333
+    },
+    "Diseño Gráfico": {
+      "coef": -0.6653190134061361,
+      "frecuencia": 0.10833333333333334
+    },
+    "Ingeniería de Sistemas": {
+      "coef": 0.39517097392878076,
+      "frecuencia": 0.15
+    },
+    "Medicina": {
+      "coef": 0.9035919934220624,
+      "frecuencia": 0.1125
+    },
+    "Psicología": {
+      "coef": -1.08918853641787,
+      "frecuencia": 0.12916666666666668
+    }
+  },
+  "control": [
+    {
+      "entrada": {
+        "horas_estudio": 19,
+        "asistencia": 78,
+        "semestre": 1,
+        "edad": 17,
+        "carrera": "Medicina"
+      },
+      "probabilidad": 0.3502201292676292
+    },
+    {
+      "entrada": {
+        "horas_estudio": 19,
+        "asistencia": 74,
+        "semestre": 7,
+        "edad": 20,
+        "carrera": "Ingeniería de Sistemas"
+      },
+      "probabilidad": 0.22362048597903242
+    },
+    {
+      "entrada": {
+        "horas_estudio": 18,
+        "asistencia": 90,
+        "semestre": 4,
+        "edad": 20,
+        "carrera": "Diseño Gráfico"
+      },
+      "probabilidad": 0.007576976624257673
+    },
+    {
+      "entrada": {
+        "horas_estudio": 19,
+        "asistencia": 100,
+        "semestre": 6,
+        "edad": 20,
+        "carrera": "Administración"
+      },
+      "probabilidad": 0.0008475702729830803
+    },
+    {
+      "entrada": {
+        "horas_estudio": 20,
+        "asistencia": 76,
+        "semestre": 5,
+        "edad": 19,
+        "carrera": "Derecho"
+      },
+      "probabilidad": 0.2614832882805156
+    },
+    {
+      "entrada": {
+        "horas_estudio": 7,
+        "asistencia": 84,
+        "semestre": 1,
+        "edad": 16,
+        "carrera": "Psicología"
+      },
+      "probabilidad": 0.3959315838515004
+    },
+    {
+      "entrada": {
+        "horas_estudio": 26,
+        "asistencia": 83,
+        "semestre": 10,
+        "edad": 24,
+        "carrera": "Administración"
+      },
+      "probabilidad": 0.001159097835358651
+    },
+    {
+      "entrada": {
+        "horas_estudio": 23,
+        "asistencia": 87,
+        "semestre": 6,
+        "edad": 21,
+        "carrera": "Ingeniería de Sistemas"
+      },
+      "probabilidad": 0.007947672558266469
+    }
+  ]
+}

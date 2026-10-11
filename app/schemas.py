@@ -175,3 +175,129 @@ class CuentaCreada(BaseModel):
 
 class LoteOut(BaseModel):
     cuentas: list[CuentaCreada]
+
+
+# ---------- Modelo del juego y Laboratorio (docs/CONTRATO_LABORATORIO.md) ----------
+
+Probabilidad = Annotated[float, Field(ge=0, le=1, description="Riesgo de que el promedio sea < 3.0")]
+
+
+class ModeloOut(BaseModel):
+    nombre: str
+    version: str
+
+
+class BaseOut(BaseModel):
+    probabilidad: Probabilidad
+    logit: float
+
+
+class AporteOut(BaseModel):
+    variable: Literal["horas_estudio", "asistencia", "semestre", "edad", "carrera"]
+    valor: int | str
+    aporte: float = Field(description="En log-odds; positivo sube el riesgo")
+    peso: float = Field(ge=0, le=1, description="|aporte| / Σ|aporte|")
+    efecto: Literal["sube", "baja", "neutro"]
+
+
+class ExplicacionOut(BaseModel):
+    probabilidad: Probabilidad
+    en_riesgo: bool
+    base: BaseOut = Field(description="Riesgo del estudiante medio de los datos de entrenamiento")
+    logit: float
+    aportes: list[AporteOut]
+    modelo: ModeloOut
+    aviso: str
+
+
+class LoteRiesgoEntrada(Entrada):
+    entradas: list[PrediccionEntrada] = Field(min_length=1, max_length=50)
+
+
+class RiesgoOut(BaseModel):
+    probabilidad: Probabilidad
+    en_riesgo: bool
+
+
+class LoteRiesgoOut(BaseModel):
+    resultados: list[RiesgoOut]
+    modelo: ModeloOut
+    aviso: str
+
+
+class CasoResumenOut(BaseModel):
+    estudiante_id: int
+    nombre: str
+    apellido: str
+    carrera: str
+    semestre: int
+    probabilidad: Probabilidad
+
+
+class CasosOut(BaseModel):
+    casos: list[CasoResumenOut]
+    presupuesto: int
+    objetivo: float
+
+
+class EstudianteCasoOut(BaseModel):
+    """Sin promedio: el modelo no lo usa y no cambia con las intervenciones."""
+
+    id: int
+    nombre: str
+    apellido: str
+    edad: int
+    carrera: str
+    semestre: int
+    horas_estudio: int
+    asistencia: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IntervencionOut(BaseModel):
+    codigo: Literal["estudio", "tutoria"]
+    nombre: str
+    fichas: int
+    variable: str
+    incremento: int
+    tope: int
+    efecto: str
+
+
+class CasoOut(BaseModel):
+    estudiante: EstudianteCasoOut
+    probabilidad: Probabilidad
+    presupuesto: int
+    objetivo: float
+    intervenciones: list[IntervencionOut]
+    explicacion: ExplicacionOut
+    aviso: str
+
+
+class ResolverEntrada(Entrada):
+    intervenciones: list[Literal["estudio", "tutoria"]] = Field(max_length=5)
+
+
+class EstadoFinalOut(BaseModel):
+    horas_estudio: int
+    asistencia: int
+
+
+class SolucionOut(BaseModel):
+    estudio: int
+    tutoria: int
+    fichas: int
+    probabilidad: Probabilidad
+
+
+class ResultadoRescateOut(BaseModel):
+    logrado: bool
+    estrellas: int = Field(ge=0, le=3)
+    fichas_usadas: int
+    fichas_optimas: int
+    probabilidad_inicial: Probabilidad
+    probabilidad_final: Probabilidad
+    estado_final: EstadoFinalOut
+    solucion_optima: SolucionOut
+    explicacion_final: ExplicacionOut
+    aviso: str
