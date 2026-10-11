@@ -1,8 +1,8 @@
 # Arquitectura de `api-tienda`
 
 > Estado verificado contra el código. Primera verificación: **2026-10-11**
-> (commit `52ddbf5`, §10). Última actualización: **Fase 5 (casos y
-> progresión), parte backend** del plan de `PROPUESTA_ESTUDIANTES_2.0.md`. Si el código
+> (commit `52ddbf5`, §10). Última actualización: **Fase 6 (pulido y
+> auditoría final del backend)** del plan de `PROPUESTA_ESTUDIANTES_2.0.md`. Si el código
 > cambia, este documento se actualiza en el mismo commit.
 >
 > Los contratos con la app Flutter están aparte:
@@ -56,6 +56,7 @@ api-tienda/
 │   ├── dependencias.py    # sesion_actual, usuario_actual, requiere_rol(...)
 │   ├── errores.py         # {"detail": {"codigo", "mensaje"}}, 401 con WWW-Authenticate, 429
 │   ├── limites.py         # Límite por IP (librería limits) e ip_cliente()
+│   ├── middleware.py      # 413 por cuerpo > 64 KiB y 500 en JSON (dentro de CORS)
 │   └── routers/
 │       ├── auth.py        # /auth/*
 │       ├── usuarios.py    # /usuarios
@@ -72,7 +73,7 @@ api-tienda/
 │   ├── congelar_modelo_juego.py  # regenera app/modelo_juego.json (con commit)
 │   ├── generar_clave.py     # valor para CLAVE_TOKENS
 │   └── crear_usuario.py     # alias + --rol; única forma de crear el primer admin
-├── tests/                 # 415 tests (§8)
+├── tests/                 # 423 tests (§8)
 ├── docs/                  # ARQUITECTURA.md (este archivo), CONTRATO_AUTH.md, CONTRATO_LABORATORIO.md
 ├── .github/workflows/tests.yml  # CI: pytest con mariadb:lts y mysql:8.4
 ├── alembic.ini, pytest.ini, render.yaml, .python-version (3.14.7)
@@ -188,12 +189,15 @@ Todos los endpoints son **síncronos** (`def`): FastAPI los ejecuta en su pool
 de hilos. Las rutas de colección de estudiantes terminan en `/`; las de
 `/auth` y `/usuarios`, no.
 
-Formato de errores:
-- Errores de `/auth`, `/usuarios` y los 401/403 de autorización:
-  `{"detail": {"codigo", "mensaje"}}` (códigos en CONTRATO_AUTH.md §2).
-- 404 de estudiantes y 422 de predicción: formato anterior (`detail` texto u objeto).
+Formato de errores (unificado en la Fase 6):
+- Todos: `{"detail": {"codigo", "mensaje", …campos extra}}` (códigos en
+  CONTRATO_AUTH.md §2 y en los demás contratos). El 422 de carrera
+  desconocida conserva `carreras_validas` (e `indices` en el lote).
 - **422 de validación**: el estándar de FastAPI **sin el campo `input`** (no
   devuelve lo enviado, contraseñas incluidas). Handler en `main.py`.
+- **500** no controlado: `{"codigo": "error_interno"}`, con CORS; el detalle
+  solo va al log `app.errores`. **413** `cuerpo_demasiado_grande` por encima de
+  64 KiB (`app/middleware.py`).
 
 `Decimal` se serializa como **texto** (`"3.45"`): por eso Flutter usa `leerNum`.
 
@@ -323,9 +327,10 @@ precedidas de un `FOR UPDATE` sobre el jugador.
 | Fuerza bruta | Por cuenta (BD): 5 fallos → 30 s, duplicando hasta 15 min; también cuenta en `PUT /auth/password`. Por IP (memoria): límites altos porque un aula comparte IP; en el login solo cuentan los fallos (contador propio con `limits`, comprobado antes de calcular ningún hash) y los techos totales, una dependencia `por_ip` sobre la misma librería (§4.2) |
 | Enumeración | Mismo 401 para alias inexistente y contraseña mala; con alias inexistente se verifica un hash falso. (El registro revela si un alias existe con 409: es inherente, y por eso tiene el límite más estricto) |
 | Asignación masiva | `extra="forbid"` en los cuerpos de auth |
-| Respuestas | HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`; `Cache-Control: no-store` en `/auth`; 422 sin `input` |
+| Respuestas | HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`; `Cache-Control: no-store` en `/auth` y en el alta en lote; 422 sin `input`; 500 en JSON sin detalles internos y con CORS; 413 por encima de 64 KiB |
+| Base de datos | `READ COMMITTED` + `FOR UPDATE` en lo que decide (login, refresh, XP); `hide_parameters`: los errores de SQL no llevan valores (hashes) a los logs |
 | CORS | `CORS_ORIGINS` obligatoria; métodos y cabeceras explícitos; expone `Retry-After` |
-| Logs | Logger `app.auth`: registros, bloqueos de cuenta, reuso de refresh, límites por IP superados (con `X-Forwarded-For`) |
+| Logs | Logger `app.auth`: registros, bloqueos de cuenta, reuso de refresh, límites por IP superados (con `X-Forwarded-For`) y **acciones de admin** (cambios de rol o estado, restablecer contraseña, alta en lote). Logger `app.errores`: trazas de los 500 |
 
 ### 5.2 Ataques probados
 
@@ -428,10 +433,10 @@ ningún valor** (`hide_input_in_errors`): antes, pydantic imprimía el valor
 inválido o, si faltaba una variable, el resto de variables, y eso acababa en
 los logs de Render.
 
-**Tests** (415; `pytest -q` en ~12 s; también pasan contra MySQL 8.4): auth 67,
-juego 60, estudiantes 42, laboratorio 35, límites 36, seguridad 33, refresh 33,
-usuarios 28, predicción 22, estadísticas 20, predicción del juego 15, modelo de
-usuarios 14, modelo del juego 9, migraciones 1.
+**Tests** (423; `pytest -q` en ~15 s; también pasan contra MySQL 8.4): auth 67,
+juego 62, estudiantes 42, límites 40, laboratorio 35, seguridad 33, refresh 33,
+usuarios 29, predicción 22, estadísticas 20, predicción del juego 15, modelo de
+usuarios 15, modelo del juego 9, migraciones 1.
 
 - `conftest.py` fija antes de importar la app una `CLAVE_TOKENS` de pruebas,
   Argon2 barato (`t=1, m=64 KiB`), `CORS_ORIGINS` e `IP_CLIENTE`.
@@ -515,33 +520,68 @@ Registro histórico de la verificación del 2026-10-11, antes de la Fase 1.
 
 ## 11. Deuda técnica
 
-Ordenada por impacto. Resueltas en la Fase 1: escrituras públicas, `CORS_ORIGINS`
-con `*` por defecto, dependencias transitivas sin fijar, falta de CI, falta de
-convención de fechas, falta de cabeceras de seguridad y de logs de seguridad,
-esquemas sin `extra="forbid"` en auth.
+Ordenada por impacto. Resueltas: escrituras públicas, CORS con `*` por defecto,
+dependencias sin fijar, falta de CI, convención de fechas, cabeceras de
+seguridad, logs de seguridad, `extra="forbid"` en auth (Fase 1); IP del cliente
+detrás del proxy (verificada); umbral de riesgo duplicado, `response_model` de
+`/prediccion/metricas`, formato de error mixto y slowapi (Fase 6).
 
-1. **Cadena de proxies de Render fijada a mano** (`x-forwarded-for:3`, §9):
-   si Render o Cloudflare añaden o quitan un salto, el límite por IP tomaría
-   otra IP. El bloqueo por cuenta no depende de esto.
+1. **El bloqueo por cuenta se puede usar para bloquear a otro** (hallazgo A1
+   de la auditoría, §12): pendiente de decisión.
 2. **El modelo de la pestaña Predicción cambia en cada deploy** (reentrenar
    en el build puede cambiar métricas, coeficientes e incluso el tipo de
-   modelo sin un commit). El juego ya no depende de eso (modelo congelado),
-   pero si cambian los datos o gana el árbol, Predicción y Laboratorio darán
+   modelo sin un commit). El juego no depende de eso (modelo congelado), pero
+   si cambian los datos o gana el árbol, Predicción y Laboratorio darán
    probabilidades distintas para la misma entrada. `congelar_modelo_juego`
    avisa si el modelo del build deja de ser la logística.
 3. **Tras un logout o un reuso detectado, el access sigue valiendo hasta
    15 min** (decisión de diseño: solo `logout-todo`, cambio de contraseña y
    desactivación cortan los access al instante).
-4. **slowapi 0.1.10** usa `asyncio.iscoroutinefunction`, obsoleto en Python
-   3.14 y eliminado en 3.16 (aviso silenciado en `pytest.ini`). Revisar antes
-   de subir de Python, o sustituirlo por un contador propio.
-5. **Contadores por IP en memoria**: se reinician si Render duerme el servicio
+4. **Contadores por IP en memoria**: se reinician si Render duerme el servicio
    y no se comparten entre procesos (hoy hay uno).
-6. **Umbral duplicado**: `estadisticas.RIESGO = 3` y `ml.UMBRAL_RIESGO = 3.0`.
-7. **`GET /prediccion/metricas` sin `response_model`**.
-8. **Formato de error mixto**: los endpoints anteriores usan `detail` texto;
-   los nuevos, `{"codigo", "mensaje"}`.
-9. **Sin paginación** en `GET /estudiantes/` (aplazada; con 300 filas no molesta).
-10. `INSTRUCCIONES_PROFESOR.md` dice estar repetido en los dos repos: la copia
-    de `app_estudiantes` debe actualizarse con los cambios de este (clave de
-    tokens, `CORS_ORIGINS`, admin).
+5. **Cadena de proxies de Render fijada a mano** (`x-forwarded-for:3`, §9).
+6. **Sin paginación** en `GET /estudiantes/` (aplazada; con 300 filas no molesta).
+7. **El healthcheck (`GET /`) no toca la base**: si Aiven cae, Render sigue
+   viendo el servicio sano (A5).
+
+---
+
+## 12. Auditoría final del backend (Fase 6, 2026-10-11)
+
+Revisión de todo el código, la configuración y el despliegue, con el foco en
+la seguridad. Dependencias: `pip-audit` sin vulnerabilidades conocidas
+(producción y desarrollo). Historial de git sin secretos (solo valores de
+prueba). 423 tests en verde en MariaDB y MySQL 8.4.
+
+**Corregido en la Fase 6** (sin cambiar el comportamiento que usa el cliente):
+
+| # | Hallazgo | Arreglo |
+|---|---|---|
+| C1 | Dos respuestas o rescates simultáneos del mismo jugador daban la XP dos veces o un 500 (REPEATABLE READ) | `READ COMMITTED` en el engine; test de concurrencia real |
+| C2 | Los errores de SQL incluían los parámetros (p. ej. un hash de contraseña) y acababan en los logs | `hide_parameters=True`; test |
+| C3 | Un 500 salía sin cabeceras CORS: Flutter Web veía un error de CORS en lugar del 500 | Middleware dentro de CORS: 500 en JSON con código; test |
+| C4 | Sin límite de tamaño de cuerpo: una petición enorme podía agotar los 512 MB | 413 por encima de 64 KiB (con o sin Content-Length); tests |
+| C5 | Las acciones de admin no dejaban rastro | Log de cambios de rol/estado y de restablecer contraseña; test |
+| C6 | `/juego/jugadores` hacía ~6 consultas por jugador (segundos con 40 alumnos) | Consultas agrupadas; test que lo compara con `/juego/progreso` |
+| C7 | Opciones en orden de texto («Semestre 10» antes que «Semestre 2») | Orden natural (contrato del juego actualizado) |
+| C8 | slowapi con una API de asyncio que desaparece en Python 3.16 | Dependencia propia sobre `limits` |
+| C9 | Formato de error mixto | `{"codigo", "mensaje"}` en toda la API, compatible con el cliente |
+
+**Pendientes de decisión** (cambios de comportamiento o de diseño: no se tocan
+sin confirmación):
+
+| # | Hallazgo | Riesgo | Propuesta |
+|---|---|---|---|
+| A1 | El bloqueo por cuenta (5 fallos → hasta 15 min) permite a cualquiera **bloquear la cuenta de otro**, y el ranking publica los alias de los jugadores. Una vez en 15 min, un intento fallido basta para mantenerla bloqueada | Medio: un alumno puede dejar sin jugar a sus compañeros en clase | Bajar el tope del bloqueo a 1 min y apoyarse en el límite de fallos por IP, o contar los fallos por (alias, IP) para que un tercero no bloquee al dueño. Siempre se puede desbloquear con `PUT /usuarios/{id}/password` |
+| A2 | `/auth/registro` está abierto a cualquiera en internet (60/h por IP) | Bajo: cuentas basura en Aiven y en el ranking | Variable `REGISTRO_ABIERTO` (por defecto sí); en clase, el docente usa el alta en lote |
+| A3 | `/docs` y `/openapi.json` son públicos en producción | Bajo: describen la API, no dan acceso | Mantener (el profesor usa Swagger) o ocultarlos con una variable |
+| A4 | Las Actions de GitHub van fijadas por etiqueta (`@v7`), no por hash | Bajo (cadena de suministro) | Fijar por SHA |
+| A5 | El healthcheck no comprueba la base | Bajo | `GET /salud` con `SELECT 1` como `healthCheckPath` |
+| A6 | Los backups de `~/backups` contienen los hashes Argon2 de los usuarios | Bajo (Argon2id) | Mantenerlos con permisos 600 o cifrarlos |
+
+**Pendientes de fin de semana** (los hace el usuario):
+
+- [ ] Desactivar `Prueba_Frontend_1011` (id 2) cuando el frontend termine sus
+      pruebas: `PATCH /usuarios/2 {"activo": false}` con el admin.
+- [ ] Revocar la API key de Render guardada en `~/.config/render/api_key`
+      (panel de Render → Account Settings → API Keys) y borrar el archivo.

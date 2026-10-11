@@ -210,3 +210,15 @@ def test_lote_de_40_cuentas(client, admin):
 
     assert respuesta.status_code == 201
     assert len(respuesta.json()["cuentas"]) == 40
+
+
+def test_las_acciones_de_admin_quedan_en_el_log(client, admin, jugador, caplog):
+    with caplog.at_level("INFO", logger="app.auth"):
+        client.patch(f"/usuarios/{jugador.id}", json={"rol": "docente", "activo": False}, headers=cabeceras(admin))
+        client.put(f"/usuarios/{jugador.id}/password", json={"password_nueva": "nueva-clave-789"},
+                   headers=cabeceras(admin))
+
+    mensajes = [r.getMessage() for r in caplog.records if r.name == "app.auth"]
+    assert f"admin {admin.id} modificó al usuario {jugador.id}: rol jugador→docente, activo True→False" in mensajes
+    assert f"admin {admin.id} restableció la contraseña del usuario {jugador.id}" in mensajes
+    assert not any("nueva-clave-789" in m for m in mensajes)

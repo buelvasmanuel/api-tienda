@@ -45,6 +45,7 @@ def listar(_: Usuario = Depends(requiere_rol("docente", "admin")), db: Session =
 def modificar(usuario_id: int, cambios: schemas.UsuarioCambios,
               admin: Usuario = Depends(requiere_rol("admin")), db: Session = Depends(get_db)):
     usuario = _objetivo(usuario_id, admin, db)
+    antes = (usuario.rol, usuario.activo)
     if cambios.rol is not None:
         usuario.rol = cambios.rol  # efecto inmediato: el rol se lee de la BD en cada petición
     if cambios.activo is not None:
@@ -53,6 +54,9 @@ def modificar(usuario_id: int, cambios: schemas.UsuarioCambios,
             sesiones.cerrar_todas(db, usuario, "desactivada")
     db.commit()
     db.refresh(usuario)
+    # Registro de auditoría: quién cambió qué (sin datos sensibles).
+    log.info("admin %s modificó al usuario %s: rol %s→%s, activo %s→%s",
+             admin.id, usuario.id, antes[0], usuario.rol, antes[1], usuario.activo)
     return usuario
 
 
@@ -67,6 +71,7 @@ def restablecer_password(usuario_id: int, datos: schemas.PasswordAdmin,
     registrar_acierto(usuario)  # quita un posible bloqueo por fuerza bruta
     sesiones.cerrar_todas(db, usuario, "password")
     db.commit()
+    log.info("admin %s restableció la contraseña del usuario %s", admin.id, usuario.id)
 
 
 @router.post("/lote", response_model=schemas.LoteOut, status_code=status.HTTP_201_CREATED)

@@ -455,6 +455,7 @@ api-tienda/
 │   ├── dependencias.py  # usuario_actual, requiere_rol(...)
 │   ├── errores.py       # Errores con código: {"detail": {"codigo", "mensaje"}}
 │   ├── limites.py       # Límite de peticiones por IP (librería limits) e IP del cliente
+│   ├── middleware.py    # 413 por cuerpo > 64 KiB y 500 en JSON (dentro de CORS)
 │   └── routers/
 │       ├── auth.py        # /auth: registro, login, refresh, sesiones
 │       ├── usuarios.py    # /usuarios: gestión por docentes y admins
