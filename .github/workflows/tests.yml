@@ -1,0 +1,60 @@
+# Ejecuta los tests de la API en cada push y pull request, contra MariaDB
+# (como en local) y contra MySQL 8.4 (como Aiven en producción).
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        base: ["mariadb:lts", "mysql:8.4"]
+
+    services:
+      db:
+        image: ${{ matrix.base }}
+        env:
+          # Las dos imágenes aceptan sus propias variables; se definen ambas.
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: tienda_test
+          MARIADB_USER: tienda_user
+          MARIADB_PASSWORD: tienda_pass
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: tienda_test
+          MYSQL_USER: tienda_user
+          MYSQL_PASSWORD: tienda_pass
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot || mariadb-admin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+
+    env:
+      DB_USER: tienda_user
+      DB_PASSWORD: tienda_pass
+      DB_HOST: 127.0.0.1
+      DB_PORT: "3306"
+      DB_NAME: tienda_test  # los tests usan siempre tienda_test
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Instalar dependencias
+        run: pip install -r requirements-dev.txt
+
+      - name: Tests
+        run: pytest -q
