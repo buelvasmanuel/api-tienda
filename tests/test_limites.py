@@ -124,6 +124,11 @@ def peticion(cabeceras: dict[str, str], ip="10.9.8.7") -> Request:
         ("x-forwarded-for:2", {"X-Forwarded-For": "6.6.6.6, 1.1.1.1, 2.2.2.2"}, "1.1.1.1"),
         ("x-forwarded-for:2", {"X-Forwarded-For": "2.2.2.2"}, "10.9.8.7"),  # faltan saltos
         ("x-forwarded-for:1", {}, "10.9.8.7"),
+        # Forma real en Render (verificada el 2026-10-11): falsa, real, Cloudflare, interna.
+        ("x-forwarded-for:3", {"X-Forwarded-For": "1.2.3.4,138.121.12.123, 162.158.42.206, 10.27.137.183"},
+         "138.121.12.123"),
+        ("x-forwarded-for:3", {"X-Forwarded-For": "138.121.12.123, 104.22.160.10, 10.27.137.183"},
+         "138.121.12.123"),
         ("cf-connecting-ip", {"CF-Connecting-IP": "3.3.3.3"}, "3.3.3.3"),
         ("cf-connecting-ip", {}, "10.9.8.7"),
     ],

@@ -427,24 +427,23 @@ health: GET /
 - El primer admin se crea desde la máquina local contra Aiven:
   `set -a; source .env.aiven; set +a; python -m scripts.crear_usuario <alias> --rol admin`.
 
-**IP del cliente detrás del proxy (pendiente de verificar).** uvicorn, con
-`FORWARDED_ALLOW_IPS=*`, toma la IP **más a la izquierda** de
-`X-Forwarded-For`, que el cliente puede escribir. Por eso el límite por IP
-lee la IP según `IP_CLIENTE`. Hasta verificar la cadena real de proxies queda
-en `conexion` (funciona, pero se puede esquivar falsificando la cabecera; el
-bloqueo por cuenta no depende de esto). Para verificarlo:
+**IP del cliente detrás del proxy (verificado el 2026-10-11).** uvicorn,
+con `FORWARDED_ALLOW_IPS=*`, toma la IP **más a la izquierda** de
+`X-Forwarded-For`, que el cliente puede escribir: con `IP_CLIENTE=conexion`
+el límite por IP se esquivaba cambiando esa cabecera (comprobado en
+producción: con otra IP falsa, el contador empezaba de cero). La cabecera
+real, vista en los logs de Render, es:
 
-1. Desde tu máquina, 31 logins seguidos **con un alias que no exista** (así
-   no se bloquea ninguna cuenta) y `-H "X-Forwarded-For: 1.2.3.4"`:
-   `for i in $(seq 31); do curl -s -o /dev/null -w "%{http_code} " -X POST
-   https://api-tienda-wjac.onrender.com/auth/login -H "Content-Type: application/json"
-   -H "X-Forwarded-For: 1.2.3.4" -d '{"alias":"no_existe_xff","password":"x"}'; done`
-   (el último debe dar `429`).
-2. En los logs de Render, la línea `demasiados logins fallidos ip=… x-forwarded-for='…'`
-   muestra la cabecera completa. Tu IP pública real tendrá una posición fija
-   contando desde la derecha.
-3. Poner `IP_CLIENTE=x-forwarded-for:N` con esa posición (o `cf-connecting-ip`
-   si Render pasa esa cabecera de Cloudflare y coincide con tu IP).
+```
+X-Forwarded-For: <lo que escriba el cliente>, <IP real>, <nodo de Cloudflare>, <10.x interna de Render>
+```
+
+El nodo de Cloudflare cambia entre peticiones (`162.158.x`, `104.22.x`…),
+así que la IP real es la **3.ª por la derecha**: `IP_CLIENTE=x-forwarded-for:3`.
+Si Render cambiara su cadena de proxies, la línea
+`demasiados logins fallidos ip=… x-forwarded-for='…'` de los logs permite
+volver a comprobarlo: lanzar 31 logins fallidos con un alias inexistente y
+`X-Forwarded-For: 1.2.3.4`, y repetir con otra IP falsa (debe dar 429).
 
 **Aiven**: MySQL 8.4 free, DigitalOcean `sfo`. Datos cargados desde la máquina
 local con `.env.aiven`.
@@ -479,8 +478,9 @@ con `*` por defecto, dependencias transitivas sin fijar, falta de CI, falta de
 convención de fechas, falta de cabeceras de seguridad y de logs de seguridad,
 esquemas sin `extra="forbid"` en auth.
 
-1. **IP del cliente sin verificar en producción** (§9): hasta entonces, el
-   límite por IP se puede esquivar.
+1. **Cadena de proxies de Render fijada a mano** (`x-forwarded-for:3`, §9):
+   si Render o Cloudflare añaden o quitan un salto, el límite por IP tomaría
+   otra IP. El bloqueo por cuenta no depende de esto.
 2. **El modelo de la pestaña Predicción cambia en cada deploy** (reentrenar
    en el build puede cambiar métricas, coeficientes e incluso el tipo de
    modelo sin un commit). El juego ya no depende de eso (modelo congelado),
