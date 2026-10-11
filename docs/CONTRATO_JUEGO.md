@@ -16,10 +16,10 @@
 | Acceso | Todo `/juego` requiere sesión (cualquier rol). `GET /juego/jugadores` solo docente o admin |
 | Casos | 9 preguntas en 3 niveles (Novato, Investigador, Experto). Las respuestas correctas se **calculan en el servidor con los datos reales en cada petición**: si cambian los estudiantes, cambian las respuestas |
 | Empates | Si dos opciones empatan en el dato que se pregunta, **todas las empatadas son correctas** |
-| XP | La calcula **solo el servidor**. Casos: 20 / 40 / 60 según el nivel, multiplicado por 1 (primer intento), 0,5 (segundo) o 0,25 (tercero o más). Solo se gana la primera vez que se resuelve. Rescates: 10 XP por cada estrella que mejore el récord del jugador en ese estudiante (máx. 30 por estudiante) |
+| XP | La calcula **solo el servidor**. Casos: 20 / 40 / 60 según el nivel, multiplicado por 1 (primer intento), 0,5 (segundo) o 0,25 (tercero o más). Solo se gana la primera vez que se resuelve. Rescates: 10 XP por cada estrella que mejore el récord del jugador en ese estudiante (máx. 30 por estudiante). Duelos (Fase 7): 30 / 15 / 5 por victoria / empate / derrota, solo los 3 primeros del día (CONTRATO_DUELO.md §5) |
 | Niveles | Novato (0 XP) → Investigador (150) → Inspector (400) → Jefe de datos (800) |
 | Insignias | 7, otorgadas por el servidor (§5). Nunca se pierden |
-| Racha | Días seguidos con actividad (responder un caso o resolver un rescate), en hora de Colombia (UTC−5) |
+| Racha | Días seguidos con actividad (responder un caso, resolver un rescate o terminar un duelo), en hora de Colombia (UTC−5) |
 | Ranking | Por XP, solo jugadores, por alias; semanal (desde el lunes 00:00 de Colombia) o histórico. Se calcula con SQL (sin Redis) |
 | Fuente de verdad | El progreso **no se guarda como un total**: XP, nivel, racha e insignias salen de los intentos y rescates guardados, así no pueden desincronizarse |
 
@@ -217,6 +217,7 @@ Todos los jugadores (decisión: sin grupos), ordenados por alias.
 | `rescate_perfecto` | Rescate perfecto | Lograr un rescate con 3 estrellas |
 | `rescatista` | Rescatista | Rescatar a 10 estudiantes distintos |
 | `constancia` | Constancia | Llegar a una racha de 3 días |
+| `duelista` | Duelista | Ganar el primer duelo de cartas (CONTRATO_DUELO.md, Fase 7) |
 
 Se comprueban después de cada respuesta a un caso y de cada rescate; las que
 se ganan en esa acción vuelven en `insignias_nuevas`.
