@@ -43,3 +43,7 @@ services:
       # se podía falsificar. Ver docs/ARQUITECTURA.md §9.
       - key: IP_CLIENTE
         value: x-forwarded-for:3
+      # Registro público abierto (el profesor y los compañeros se registran
+      # solos). Con "false", las cuentas las crea el docente con el alta en lote.
+      - key: REGISTRO_ABIERTO
+        value: "true"

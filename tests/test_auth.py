@@ -162,7 +162,7 @@ def test_login_rehace_el_hash_si_cambian_los_parametros(client, crear_usuario, d
 
 @pytest.mark.parametrize(
     ("fallos", "segundos"),
-    [(1, None), (4, None), (5, 30), (6, 60), (7, 120), (9, 480), (10, 900), (50, 900)],
+    [(1, None), (4, None), (5, 30), (6, 60), (7, 60), (10, 60), (500, 60)],
 )
 def test_duracion_del_bloqueo(fallos, segundos):
     esperado = timedelta(seconds=segundos) if segundos else None
@@ -336,3 +336,16 @@ def test_publicos_ignoran_un_token_caducado(client, crear_usuario, reloj):
     reloj.avanzar(hours=1)
 
     assert client.get("/estudiantes/", headers=viejo).status_code == 200
+
+
+def test_registro_cerrado(client, crear_usuario, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "REGISTRO_ABIERTO", False)
+    crear_usuario("jugador_1")
+
+    respuesta = registrar(client)
+
+    assert respuesta.status_code == 403
+    assert codigo(respuesta) == "registro_cerrado"
+    assert login(client).status_code == 200  # el login sigue funcionando

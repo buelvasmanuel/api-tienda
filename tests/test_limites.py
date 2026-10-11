@@ -273,3 +273,40 @@ def test_error_inesperado_es_un_500_json_con_cors(db_session, monkeypatch):
     assert "detalle interno" not in respuesta.text
     assert respuesta.headers["Access-Control-Allow-Origin"] == "https://app.ejemplo.org"
     assert respuesta.headers["X-Content-Type-Options"] == "nosniff"
+
+
+# ---------- /salud ----------
+
+def test_salud_con_la_base_disponible(client):
+    assert client.get("/salud").json() == {"estado": "ok", "base_de_datos": "ok"}
+
+
+def test_salud_sin_base(client):
+    from sqlalchemy.exc import OperationalError
+
+    from app.database import get_db
+    from app.main import app
+
+    class BaseCaida:
+        def execute(self, *_):
+            raise OperationalError("SELECT 1", {}, Exception("conexión rechazada"))
+
+    app.dependency_overrides[get_db] = lambda: BaseCaida()
+
+    respuesta = client.get("/salud")
+
+    assert respuesta.status_code == 503
+    assert codigo(respuesta) == "base_de_datos_no_disponible"
+    assert "rechazada" not in respuesta.text
+
+
+def test_la_raiz_no_toca_la_base(client):
+    from app.database import get_db
+    from app.main import app
+
+    def sin_base():
+        raise AssertionError("/ no debe abrir la base")
+
+    app.dependency_overrides[get_db] = sin_base
+
+    assert client.get("/").status_code == 200

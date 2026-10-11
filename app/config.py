@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     # - Otro texto: nombre de una cabecera que pone el proxy (cf-connecting-ip).
     IP_CLIENTE: str = "conexion"
 
+    # Si es False, POST /auth/registro responde 403 registro_cerrado y las
+    # cuentas solo las crea un docente (alta en lote) o un admin.
+    REGISTRO_ABIERTO: bool = True
+
     # Clave maestra de los tokens: 32 bytes en base64url. De ella se derivan la
     # clave de PASETO y la de los refresh (app/seguridad.py). Sin valor por
     # defecto: si falta, la app no arranca. Generar con:

@@ -1,8 +1,21 @@
 # Contrato de autenticación (`/auth` y `/usuarios`)
 
-> Contrato entre `api-tienda` y `app_estudiantes`. Versión **1.1**, 2026-10-11.
+> Contrato entre `api-tienda` y `app_estudiantes`. Versión **1.2**, 2026-10-11.
 > El interceptor de Flutter se implementa leyendo este archivo. Cualquier
 > cambio de la API que lo afecte se hace aquí primero, en el mismo commit.
+
+### Cambios de la v1.2 (Fase 6: pulido y auditoría)
+
+Todos compatibles con el cliente actual (que ya lee `{"codigo", "mensaje"}`).
+
+| Cambio | Qué toca en el cliente |
+|---|---|
+| **Errores con `codigo` en toda la API**: `estudiante_no_encontrado` (404), `carrera_desconocida` (422, conserva `carreras_validas` e `indices`), `modelo_no_disponible` (503) | Nada obligatorio; puede decidir por `codigo` también en esos casos |
+| **500** no controlado: `{"codigo": "error_interno", "mensaje"}`, ahora **con cabeceras CORS** (antes Flutter Web lo veía como error de red) | Mostrar «Error interno» en vez de «sin conexión» |
+| **413** `cuerpo_demasiado_grande` si el cuerpo supera 64 KiB | Nada (ningún cuerpo legítimo se acerca) |
+| **Bloqueo por cuenta de 1 min como máximo** (antes hasta 15 min) | Nada: sigue siendo `429` con `Retry-After` |
+| **`403 registro_cerrado`** en `POST /auth/registro` si el servidor cierra el registro (`REGISTRO_ABIERTO=false`; hoy está abierto) | Mostrar el mensaje («pide una cuenta a tu docente») |
+| **`GET /salud`**: `200 {"estado": "ok", "base_de_datos": "ok"}` o `503 base_de_datos_no_disponible` | Opcional, para diagnosticar |
 
 ### Cambios de la v1.1 (respuesta a las dudas del frontend)
 
@@ -63,13 +76,17 @@ Los errores de autenticación y de `/usuarios` tienen siempre esta forma:
 | 403 | `permiso_denegado` | Rol insuficiente | Mostrar «No tienes permiso». No refrescar |
 | 403 | `cuenta_desactivada` | Un admin desactivó la cuenta (en login, refresh o cualquier petición) | Borrar tokens → login con ese mensaje |
 | 403 | `password_actual_incorrecta` | `PUT /auth/password` con la contraseña actual mal | Error en el formulario |
+| 403 | `registro_cerrado` | `POST /auth/registro` con el registro cerrado en el servidor (v1.2) | Mostrar el mensaje; no reintentar |
 | 404 | `usuario_no_encontrado` | `/usuarios/{id}` inexistente | — |
+| 404 | `estudiante_no_encontrado` | `/estudiantes/{id}` inexistente (Fase 6; antes, texto) | — |
 | 409 | `alias_en_uso` | Registro con un alias que ya existe (sin distinguir mayúsculas). En `POST /usuarios/lote` el detalle añade `"aliases": [...]` con los que chocan | Error en el formulario |
 | 409 | `no_puedes_modificarte` | Un admin intenta cambiar su propio rol/estado desde `/usuarios` | — |
-| 404 | `estudiante_no_encontrado` | `/estudiantes/{id}` inexistente (Fase 6; antes, texto) | — |
+| 413 | `cuerpo_demasiado_grande` | Cuerpo de más de 64 KiB (v1.2) | — |
 | 422 | `carrera_desconocida` | `/prediccion/*` con una carrera que el modelo no conoce; añade `carreras_validas` (y `indices` en el lote) | Mostrar las válidas |
-| 503 | `modelo_no_disponible` | `/prediccion/riesgo` o `/metricas` sin modelo entrenado (Fase 6; antes, texto) | Reintentar más tarde |
 | 429 | `demasiados_intentos` | Límite por cuenta o por IP superado | Esperar `Retry-After` s; mostrar cuenta atrás. **No** reintentar en bucle |
+| 500 | `error_interno` | Error no controlado del servidor; el detalle solo va al log (v1.2) | «Error interno», reintentar más tarde |
+| 503 | `base_de_datos_no_disponible` | `GET /salud` sin conexión con la base (v1.2) | — |
+| 503 | `modelo_no_disponible` | `/prediccion/riesgo` o `/metricas` sin modelo entrenado (Fase 6; antes, texto) | Reintentar más tarde |
 
 **No existe un código de concurrencia (no hay 409 en `/auth/refresh`).**
 Dos refresh simultáneos con el mismo token reciben ambos `200` con el mismo
@@ -130,6 +147,7 @@ Cuerpo: `{"alias": Alias, "password": Password}`
 | Respuesta | Cuándo |
 |---|---|
 | `201 TokensOut` | Cuenta creada con rol `jugador` y sesión iniciada |
+| `403 registro_cerrado` | El servidor tiene el registro cerrado (`REGISTRO_ABIERTO=false`) |
 | `409 alias_en_uso` | |
 | `422` | Alias/contraseña inválidos, campos extra |
 | `429 demasiados_intentos` | Más de 60 registros por hora desde la misma IP |
@@ -146,9 +164,10 @@ Cuerpo: `{"alias": str, "password": str}`
 | `429 demasiados_intentos` | Cuenta bloqueada temporalmente, más de 30 intentos **fallidos**/min desde la IP, o más de 120 intentos/min en total desde la IP |
 
 Bloqueo por cuenta: a partir de **5 fallos seguidos**, la cuenta se bloquea
-30 s, y cada fallo posterior duplica el bloqueo (30 s, 1 min, 2 min, 4 min,
-8 min, máx. 15 min). Mientras está bloqueada responde `429` **aunque la
-contraseña sea correcta**. Un login correcto pone el contador a cero.
+30 s, y cada fallo posterior la bloquea **1 min** (máximo; v1.2, antes llegaba
+a 15 min). Mientras está bloqueada responde `429` **aunque la contraseña sea
+correcta**. Un login correcto pone el contador a cero. Es corto a propósito:
+un bloqueo largo permitiría a cualquiera dejar sin acceso a otro jugador.
 
 ### 4.3 `POST /auth/refresh` — público (el refresh es la credencial)
 

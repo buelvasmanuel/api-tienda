@@ -6,7 +6,7 @@
 > cambia, este documento se actualiza en el mismo commit.
 >
 > Los contratos con la app Flutter están aparte:
-> [CONTRATO_AUTH.md](CONTRATO_AUTH.md) (v1.1),
+> [CONTRATO_AUTH.md](CONTRATO_AUTH.md) (v1.2),
 > [CONTRATO_LABORATORIO.md](CONTRATO_LABORATORIO.md) (v1.1) y
 > [CONTRATO_JUEGO.md](CONTRATO_JUEGO.md) (v1).
 
@@ -73,7 +73,7 @@ api-tienda/
 │   ├── congelar_modelo_juego.py  # regenera app/modelo_juego.json (con commit)
 │   ├── generar_clave.py     # valor para CLAVE_TOKENS
 │   └── crear_usuario.py     # alias + --rol; única forma de crear el primer admin
-├── tests/                 # 423 tests (§8)
+├── tests/                 # 426 tests (§8)
 ├── docs/                  # ARQUITECTURA.md (este archivo), CONTRATO_AUTH.md, CONTRATO_LABORATORIO.md
 ├── .github/workflows/tests.yml  # CI: pytest con mariadb:lts y mysql:8.4
 ├── alembic.ini, pytest.ini, render.yaml, .python-version (3.14.7)
@@ -205,7 +205,8 @@ Formato de errores (unificado en la Fase 6):
 
 | Método | Ruta | Respuesta |
 |---|---|---|
-| GET | `/` | `{"mensaje": "API funcionando"}` — healthcheck de Render (no toca la BD) |
+| GET | `/` | `{"mensaje": "API funcionando"}` — healthcheck de Render (no toca la BD, a propósito) |
+| GET | `/salud` | `{"estado": "ok", "base_de_datos": "ok"}` tras un `SELECT 1`; 503 `base_de_datos_no_disponible` |
 
 ### 4.2 Autenticación y usuarios
 
@@ -324,7 +325,7 @@ precedidas de un `FOR UPDATE` sobre el jugador.
 | Claves | `CLAVE_TOKENS` (32 bytes) → HKDF-SHA256 → una subclave para PASETO y otra para los sucesores de refresh |
 | Refresh | 256 bits aleatorios; sucesor = `HMAC-SHA256(subclave, refresh)`; en BD solo SHA-256. Rotación con `SELECT … FOR UPDATE`. Ventana idempotente de 120 s (CONTRATO_AUTH.md §5) |
 | Cada petición | Se carga el usuario de la BD: el rol se lee de ahí; cuenta desactivada → 403; `iat < sesiones_validas_desde` → 401 |
-| Fuerza bruta | Por cuenta (BD): 5 fallos → 30 s, duplicando hasta 15 min; también cuenta en `PUT /auth/password`. Por IP (memoria): límites altos porque un aula comparte IP; en el login solo cuentan los fallos (contador propio con `limits`, comprobado antes de calcular ningún hash) y los techos totales, una dependencia `por_ip` sobre la misma librería (§4.2) |
+| Fuerza bruta | Por cuenta (BD): 5 fallos → 30 s, y después 1 min como máximo (auditoría A1, §12); también cuenta en `PUT /auth/password`. Por IP (memoria): límites altos porque un aula comparte IP; en el login solo cuentan los fallos (contador propio con `limits`, comprobado antes de calcular ningún hash) y los techos totales, una dependencia `por_ip` sobre la misma librería (§4.2) |
 | Enumeración | Mismo 401 para alias inexistente y contraseña mala; con alias inexistente se verifica un hash falso. (El registro revela si un alias existe con 409: es inherente, y por eso tiene el límite más estricto) |
 | Asignación masiva | `extra="forbid"` en los cuerpos de auth |
 | Respuestas | HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`; `Cache-Control: no-store` en `/auth` y en el alta en lote; 422 sin `input`; 500 en JSON sin detalles internos y con CORS; 413 por encima de 64 KiB |
@@ -422,6 +423,7 @@ tqdm 4.70.1; sin numba). `shap` solo valida la explicación en los tests.
 | `DB_USER`, `DB_PASSWORD`, `DB_NAME` | obligatorias | Conexión |
 | `DB_HOST` / `DB_PORT` | `localhost` / `3306` | Conexión |
 | `DB_SSL_CA` | `""` (sin SSL) | Ruta a `ca.pem` o PEM pegado |
+| `REGISTRO_ABIERTO` | `true` | `false` cierra `POST /auth/registro` (403 `registro_cerrado`); en Render, `true` |
 | `CORS_ORIGINS` | **obligatoria** | `*` en local; `https://buelvasmanuel.github.io` en Render |
 | `CLAVE_TOKENS` | **obligatoria** | 32 bytes base64url (`scripts.generar_clave`); se valida al arrancar |
 | `IP_CLIENTE` | `conexion` | `conexion`, `x-forwarded-for:N` (N desde la derecha) o nombre de cabecera; `x-forwarded-for` a secas se rechaza |
@@ -433,8 +435,8 @@ ningún valor** (`hide_input_in_errors`): antes, pydantic imprimía el valor
 inválido o, si faltaba una variable, el resto de variables, y eso acababa en
 los logs de Render.
 
-**Tests** (423; `pytest -q` en ~15 s; también pasan contra MySQL 8.4): auth 67,
-juego 62, estudiantes 42, límites 40, laboratorio 35, seguridad 33, refresh 33,
+**Tests** (426; `pytest -q` en ~15 s; también pasan contra MySQL 8.4): auth 67,
+juego 62, límites 43, estudiantes 42, laboratorio 35, seguridad 33, refresh 33,
 usuarios 29, predicción 22, estadísticas 20, predicción del juego 15, modelo de
 usuarios 15, modelo del juego 9, migraciones 1.
 
@@ -446,7 +448,8 @@ usuarios 15, modelo del juego 9, migraciones 1.
   (adelanta `reloj.ahora()`), `limite_por_ip` (el límite por IP está apagado
   salvo en los tests que lo piden).
 - El test de concurrencia usa conexiones reales con commit y limpia al final.
-- CI: `.github/workflows/tests.yml` contra `mariadb:lts` y `mysql:8.4`.
+- CI: `.github/workflows/tests.yml` contra `mariadb:lts` y `mysql:8.4`, con
+  las Actions fijadas por hash de commit.
 
 ---
 
@@ -526,23 +529,21 @@ seguridad, logs de seguridad, `extra="forbid"` en auth (Fase 1); IP del cliente
 detrás del proxy (verificada); umbral de riesgo duplicado, `response_model` de
 `/prediccion/metricas`, formato de error mixto y slowapi (Fase 6).
 
-1. **El bloqueo por cuenta se puede usar para bloquear a otro** (hallazgo A1
-   de la auditoría, §12): pendiente de decisión.
-2. **El modelo de la pestaña Predicción cambia en cada deploy** (reentrenar
+1. **El modelo de la pestaña Predicción cambia en cada deploy** (reentrenar
    en el build puede cambiar métricas, coeficientes e incluso el tipo de
    modelo sin un commit). El juego no depende de eso (modelo congelado), pero
    si cambian los datos o gana el árbol, Predicción y Laboratorio darán
    probabilidades distintas para la misma entrada. `congelar_modelo_juego`
    avisa si el modelo del build deja de ser la logística.
-3. **Tras un logout o un reuso detectado, el access sigue valiendo hasta
+2. **Tras un logout o un reuso detectado, el access sigue valiendo hasta
    15 min** (decisión de diseño: solo `logout-todo`, cambio de contraseña y
    desactivación cortan los access al instante).
-4. **Contadores por IP en memoria**: se reinician si Render duerme el servicio
+3. **Contadores por IP en memoria**: se reinician si Render duerme el servicio
    y no se comparten entre procesos (hoy hay uno).
-5. **Cadena de proxies de Render fijada a mano** (`x-forwarded-for:3`, §9).
-6. **Sin paginación** en `GET /estudiantes/` (aplazada; con 300 filas no molesta).
-7. **El healthcheck (`GET /`) no toca la base**: si Aiven cae, Render sigue
-   viendo el servicio sano (A5).
+4. **Cadena de proxies de Render fijada a mano** (`x-forwarded-for:3`, §9).
+5. **Sin paginación** en `GET /estudiantes/` (aplazada; con 300 filas no molesta).
+6. **El healthcheck de Render (`GET /`) no toca la base** (decisión A5): si
+   Aiven cae, Render sigue viendo el servicio sano; `GET /salud` sí lo detecta.
 
 ---
 
@@ -567,17 +568,30 @@ prueba). 423 tests en verde en MariaDB y MySQL 8.4.
 | C8 | slowapi con una API de asyncio que desaparece en Python 3.16 | Dependencia propia sobre `limits` |
 | C9 | Formato de error mixto | `{"codigo", "mensaje"}` en toda la API, compatible con el cliente |
 
-**Pendientes de decisión** (cambios de comportamiento o de diseño: no se tocan
-sin confirmación):
+**Decisiones sobre los hallazgos A1-A6** (tomadas por el usuario el
+2026-10-11 y aplicadas en la Fase 6):
 
-| # | Hallazgo | Riesgo | Propuesta |
-|---|---|---|---|
-| A1 | El bloqueo por cuenta (5 fallos → hasta 15 min) permite a cualquiera **bloquear la cuenta de otro**, y el ranking publica los alias de los jugadores. Una vez en 15 min, un intento fallido basta para mantenerla bloqueada | Medio: un alumno puede dejar sin jugar a sus compañeros en clase | Bajar el tope del bloqueo a 1 min y apoyarse en el límite de fallos por IP, o contar los fallos por (alias, IP) para que un tercero no bloquee al dueño. Siempre se puede desbloquear con `PUT /usuarios/{id}/password` |
-| A2 | `/auth/registro` está abierto a cualquiera en internet (60/h por IP) | Bajo: cuentas basura en Aiven y en el ranking | Variable `REGISTRO_ABIERTO` (por defecto sí); en clase, el docente usa el alta en lote |
-| A3 | `/docs` y `/openapi.json` son públicos en producción | Bajo: describen la API, no dan acceso | Mantener (el profesor usa Swagger) o ocultarlos con una variable |
-| A4 | Las Actions de GitHub van fijadas por etiqueta (`@v7`), no por hash | Bajo (cadena de suministro) | Fijar por SHA |
-| A5 | El healthcheck no comprueba la base | Bajo | `GET /salud` con `SELECT 1` como `healthCheckPath` |
-| A6 | Los backups de `~/backups` contienen los hashes Argon2 de los usuarios | Bajo (Argon2id) | Mantenerlos con permisos 600 o cifrarlos |
+| # | Hallazgo | Decisión |
+|---|---|---|
+| A1 | El bloqueo por cuenta (5 fallos → hasta 15 min) permitía a cualquiera **bloquear la cuenta de otro**: con los alias visibles en el ranking, un intento fallido cada 15 min bastaba para dejar a un compañero sin jugar | **Bloqueo máximo de 1 min** (30 s y luego 1 min). Ver el razonamiento abajo |
+| A2 | `/auth/registro` abierto a cualquiera en internet | Variable `REGISTRO_ABIERTO` (`403 registro_cerrado` si es `false`), pero **abierto en producción**: el profesor y los compañeros se registran solos. Para una clase cerrada, el docente tiene el alta en lote |
+| A3 | `/docs` y `/openapi.json` públicos | **Se quedan públicos**: el profesor usa Swagger, y describen la API sin dar acceso |
+| A4 | Actions fijadas por etiqueta | **Fijadas por hash de commit** (checkout v7.0.1, setup-python v7.0.0) |
+| A5 | El healthcheck no comprueba la base | Nuevo **`GET /salud`** con `SELECT 1` (503 `base_de_datos_no_disponible`). El healthcheck de Render **sigue siendo `/`**: si Aiven tarda (p. ej. al despertar), Render no debe reiniciar una API que está bien |
+| A6 | Los backups contienen hashes Argon2 | **Suficiente como está** (permisos 600, fuera del repo; Argon2id) |
+
+**Por qué un bloqueo corto y no contar los fallos por alias + IP (A1).**
+Contar los fallos por la pareja (alias, IP) solo impediría que un tercero
+bloquee al dueño si el atacante tuviera otra IP; en un aula, atacante y
+víctima salen a internet por la **misma IP pública** del colegio, así que el
+bloqueo seguiría siendo explotable. Un bloqueo corto acota el daño para
+cualquier atacante: lo peor que puede hacer un compañero es retrasar un
+minuto a otro, y el admin siempre puede restablecer la cuenta. Contra la
+fuerza bruta, la cuenta sigue limitada a unos pocos intentos por minuto (y
+Argon2id encarece cada uno), y la IP a 30 fallos por minuto en total; con
+contraseñas de 10 caracteres o más, eso no deja adivinar una contraseña
+razonable. Si apareciera abuso real, la siguiente medida sería avisar al
+admin en los logs (ya se registran los bloqueos) en lugar de alargar el bloqueo.
 
 **Pendientes de fin de semana** (los hace el usuario):
 

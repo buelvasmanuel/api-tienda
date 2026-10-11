@@ -1,13 +1,18 @@
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app import middleware
 from app.config import settings
+from app.database import get_db
+from app.errores import error
 from app.routers import auth, estadisticas, estudiantes, juego, laboratorio, prediccion, usuarios
 
 # Logs de la app (eventos de seguridad: bloqueos, reuso de tokens...). uvicorn
@@ -79,4 +84,18 @@ app.include_router(juego.router)
 
 @app.get("/")
 def raiz():
+    """Healthcheck de Render: no toca la base a propósito, para que Render no
+    reinicie la API si Aiven tarda en responder (p. ej. al despertar)."""
     return {"mensaje": "API funcionando"}
+
+
+@app.get("/salud")
+def salud(db: Session = Depends(get_db)):
+    """Comprueba también la conexión con la base (SELECT 1): para diagnosticar,
+    no como healthcheck de Render."""
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        logging.getLogger("app.errores").exception("/salud: la base de datos no responde")
+        raise error(503, "base_de_datos_no_disponible", "No hay conexión con la base de datos")
+    return {"estado": "ok", "base_de_datos": "ok"}

@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import limites, reloj, schemas, seguridad, sesiones
+from app.config import settings
 from app.database import get_db
 from app.dependencias import SesionActual, sesion_actual, usuario_actual
 from app.errores import demasiados_intentos, error, no_autorizado, validacion_password_igual_al_alias
@@ -26,18 +27,21 @@ def _sin_cache(respuesta: Response) -> None:
 router = APIRouter(prefix="/auth", tags=["Autenticación"], dependencies=[Depends(_sin_cache)])
 
 # Bloqueo por cuenta: a partir de FALLOS_PARA_BLOQUEAR fallos seguidos, 30 s, y
-# cada fallo posterior lo duplica hasta un máximo de 15 min.
+# después 1 min como máximo. Es corto a propósito (auditoría A1, ver
+# docs/ARQUITECTURA.md §12): un bloqueo largo deja a cualquiera bloquear la
+# cuenta de otro (los alias se ven en el ranking). Frena la fuerza bruta a ~1
+# intento por minuto y cuenta; el límite de fallos por IP hace el resto.
 FALLOS_PARA_BLOQUEAR = 5
 BLOQUEO_INICIAL = timedelta(seconds=30)
-BLOQUEO_MAXIMO = timedelta(minutes=15)
+BLOQUEO_MAXIMO = timedelta(minutes=1)
 
 
 def duracion_bloqueo(fallos: int) -> timedelta | None:
     """Cuánto se bloquea la cuenta tras `fallos` fallos seguidos (None = nada)."""
     if fallos < FALLOS_PARA_BLOQUEAR:
         return None
-    # El exponente se acota: con cientos de fallos, 2**n desbordaría timedelta,
-    # y a partir de 2**5 ya se supera el máximo.
+    # El exponente se acota: con cientos de fallos, 2**n desbordaría timedelta
+    # (y con el máximo actual, a partir de 2**1 ya se alcanza).
     exponente = min(fallos - FALLOS_PARA_BLOQUEAR, 10)
     return min(BLOQUEO_INICIAL * 2**exponente, BLOQUEO_MAXIMO)
 
@@ -84,6 +88,9 @@ def registrar_acierto(usuario: Usuario) -> None:
              dependencies=[Depends(limites.por_ip(limites.REGISTRO, "registro"))])
 def registro(datos: schemas.RegistroEntrada, request: Request, db: Session = Depends(get_db)):
     """Crea una cuenta de jugador y abre su primera sesión."""
+    if not settings.REGISTRO_ABIERTO:
+        raise error(status.HTTP_403_FORBIDDEN, "registro_cerrado",
+                    "El registro está cerrado: pide una cuenta a tu docente")
     # Se comprueba antes de calcular el hash para no gastar CPU en balde.
     if db.scalar(select(Usuario.id).where(Usuario.alias == datos.alias)) is not None:
         raise _alias_en_uso()

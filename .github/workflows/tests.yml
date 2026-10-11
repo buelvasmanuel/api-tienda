@@ -1,5 +1,9 @@
 # Ejecuta los tests de la API en cada push y pull request, contra MariaDB
 # (como en local) y contra MySQL 8.4 (como Aiven en producción).
+#
+# Las Actions van fijadas por hash de commit (una etiqueta como @v7 se puede
+# mover a otro código); el comentario dice a qué versión corresponde. Para
+# actualizar: gh api repos/<accion>/git/ref/tags/<version>.
 name: Tests
 
 on:
@@ -45,9 +49,9 @@ jobs:
       DB_NAME: tienda_test  # los tests usan siempre tienda_test
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version-file: .python-version
           cache: pip

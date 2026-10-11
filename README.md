@@ -110,6 +110,7 @@ Y rellena los valores:
 | `CLAVE_TOKENS` | Clave de las sesiones (32 bytes en base64url). **Obligatoria** | salida de `python -m scripts.generar_clave` |
 | `CORS_ORIGINS` | Orígenes web permitidos, separados por comas. **Obligatoria** | `*` en local |
 | `IP_CLIENTE`  | De dónde sale la IP para el límite por IP (opcional) | `conexion` (por defecto) |
+| `REGISTRO_ABIERTO` | `false` cierra el registro público (opcional) | `true` (por defecto) |
 
 > ⚠️ **Nunca subas `.env` a Git.** Ya está incluido en `.gitignore`.
 > Comparte solo `.env.example`, que no lleva valores reales.
@@ -542,7 +543,7 @@ debe hacer el cliente en cada caso) está en
 | Método | Ruta              | Acceso      | Descripción |
 |--------|-------------------|-------------|-------------|
 | `POST` | `/auth/registro`  | público     | Crea una cuenta de jugador y abre sesión |
-| `POST` | `/auth/login`     | público     | Abre una sesión (bloqueo temporal de la cuenta tras 5 fallos) |
+| `POST` | `/auth/login`     | público     | Abre una sesión (tras 5 fallos, la cuenta espera 30 s y luego 1 min) |
 | `POST` | `/auth/refresh`   | público     | Cambia el refresh por uno nuevo (rotación) y da un access nuevo |
 | `POST` | `/auth/logout`    | público     | Cierra la sesión de ese refresh |
 | `POST` | `/auth/logout-todo` | con token | Cierra todas las sesiones del usuario |
@@ -561,7 +562,8 @@ Swagger (`/docs`): botón **Authorize** y pegar el `access_token` del login.
 
 | Método   | Ruta | Descripción                   | Respuesta |
 |----------|------|-------------------------------|-----------|
-| `GET`    | `/`  | Comprobar que la API funciona | 200       |
+| `GET`    | `/`  | Comprobar que la API funciona (healthcheck de Render; no toca la base) | 200 |
+| `GET`    | `/salud` | Comprobar también la conexión con la base | 200 / 503 |
 
 ### Estudiantes
 
