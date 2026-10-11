@@ -1,14 +1,49 @@
 # Instrucciones para ejecutar el proyecto
 
-El proyecto tiene dos carpetas:
+El proyecto tiene dos partes:
 
-- **`api-tienda`**: API REST (FastAPI + MariaDB + modelo de scikit-learn).
-- **`app_estudiantes`**: app Flutter que consume la API (Windows, Linux, Chrome o Android).
+- **`api-tienda`**: API REST (FastAPI + MariaDB/MySQL + modelo de scikit-learn).
+- **`app_estudiantes`**: app Flutter que consume la API (Android, web, Windows o Linux).
+
+Dos formas de probarlo:
+
+1. **[Opción rápida: versión en la nube](#opción-rápida-versión-en-la-nube)**: sin instalar nada.
+2. **[Opción alternativa: instalación local](#opción-alternativa-instalación-local)**: todo en su PC ([Windows](#windows) o [Linux](#linux)).
+
+> Este archivo está en los dos repositorios (es el mismo).
+
+---
+
+## Opción rápida: versión en la nube
+
+| | Enlace |
+|---|---|
+| **App web** | <https://buelvasmanuel.github.io/app-estudiantes/> |
+| **APK Android** | <https://github.com/buelvasmanuel/app-estudiantes/releases/latest/download/Estudiantes.apk> |
+| **API (Swagger)** | <https://api-tienda-wjac.onrender.com/docs> |
+
+> ⏱️ La API está en el plan gratuito de Render, que **se apaga tras ~15 min sin
+> uso**. La primera carga puede tardar **hasta un minuto**: la app muestra
+> *"Despertando el servidor, puede tardar hasta un minuto…"*. Después responde
+> al instante.
+
+**Instalar el APK en un celular Android:**
+
+1. Abrir el enlace del APK **desde el celular** y descargar `Estudiantes.apk`.
+2. Abrir el archivo descargado. Si Android lo pide, permitir **"Instalar apps
+   desconocidas"** para el navegador o el gestor de archivos.
+3. Si aparece Play Protect ("app no reconocida"): **Más detalles → Instalar de
+   todas formas** (es una app de clase, no está en Google Play).
+4. Abrir **Estudiantes**.
+
+Qué debe verse: ver [Verificación rápida](#verificación-rápida).
+
+---
+
+## Opción alternativa: instalación local
 
 Orden: **instalar → base de datos → API → app**. La API debe quedar corriendo
 en una terminal mientras se usa la app en otra.
-
-> Este archivo está en las dos carpetas (es el mismo).
 
 ---
 
@@ -250,7 +285,7 @@ flutter run -d <id-del-celular> --dart-define=API_URL=http://127.0.0.1:8000
 
 | Dónde | Qué debe verse |
 |---|---|
-| <http://127.0.0.1:8000/docs> | Swagger con los grupos Productos, Categorías, Estudiantes, Estadísticas y Predicción |
+| `/docs` de la API (local: <http://127.0.0.1:8000/docs> · nube: <https://api-tienda-wjac.onrender.com/docs>) | Swagger con los grupos Productos, Categorías, Estudiantes, Estadísticas y Predicción |
 | App → **Estudiantes** | "300 de 300" y el filtro **"En riesgo (55)"**; promedios < 3.0 en rojo. Tocar uno abre el detalle |
 | App → **Gráficas** | "Estudiantes por carrera": Derecho es la más alta (**49**). El desplegable cambia entre 6 estadísticas |
 | App → **Predicción** | Elegir **Psicología** y pulsar Predecir → tarjeta **verde** "Sin riesgo". Elegir **Medicina**, horas en **0** y asistencia en **30 %** → tarjeta **roja** "En riesgo". Abajo: métricas del modelo (recall 73 %) |
