@@ -1,7 +1,7 @@
 """Progreso del jugador: XP, niveles, racha, insignias y ranking.
 
 Nada de esto se guarda como total: todo se calcula a partir de las filas de
-intentos_caso y rescates (y usuarios_insignias para las insignias ganadas).
+intentos_caso, rescates y duelos (y usuarios_insignias para las insignias).
 Reglas: docs/CONTRATO_JUEGO.md §1, §4 y §5.
 """
 
@@ -9,12 +9,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import func, select, union_all
+from sqlalchemy import and_, func, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from app import reloj
 from app.casos import CASOS
-from app.models import InsigniaObtenida, IntentoCaso, Rescate, Usuario
+from app.models import Duelo, InsigniaObtenida, IntentoCaso, Rescate, Usuario
 
 # Colombia no tiene horario de verano: UTC−5 todo el año. Un desfase fijo evita
 # depender de la base de datos de zonas horarias del sistema.
@@ -62,11 +62,24 @@ def inicio_semana() -> datetime:
 # ---------- Consultas ----------
 
 def _eventos_xp():
-    """(usuario_id, xp, creado_en) de casos y rescates juntos."""
+    """(usuario_id, xp, creado_en) de casos, rescates y duelos terminados juntos.
+    Un duelo cuenta para cada jugador humano, en el momento en que terminó
+    (los abandonados no cuentan: ni XP ni actividad)."""
+    terminado = Duelo.estado == "terminado"
     return union_all(
         select(IntentoCaso.usuario_id, IntentoCaso.xp, IntentoCaso.creado_en),
         select(Rescate.usuario_id, Rescate.xp, Rescate.creado_en),
+        select(Duelo.jugador_a_id.label("usuario_id"), Duelo.xp_a.label("xp"),
+               Duelo.terminado_en.label("creado_en")).where(terminado),
+        select(Duelo.jugador_b_id, Duelo.xp_b, Duelo.terminado_en).where(terminado, Duelo.jugador_b_id.is_not(None)),
     ).subquery()
+
+
+def duelos_ganados(db: Session, usuario_id: int) -> int:
+    return db.scalar(select(func.count()).select_from(Duelo).where(Duelo.estado == "terminado", or_(
+        and_(Duelo.jugador_a_id == usuario_id, Duelo.resultado_a == "victoria"),
+        and_(Duelo.jugador_b_id == usuario_id, Duelo.resultado_a == "derrota"),
+    )))
 
 
 def xp_total(db: Session, usuario_id: int) -> int:
@@ -144,6 +157,7 @@ class Estado:
     al_primer_intento: int
     records: dict[int, int]
     racha: int
+    duelos_ganados: int = 0
 
 
 def estado(db: Session, usuario_id: int) -> Estado:
@@ -152,6 +166,7 @@ def estado(db: Session, usuario_id: int) -> Estado:
         al_primer_intento=casos_al_primer_intento(db, usuario_id),
         records=records_de_rescate(db, usuario_id),
         racha=racha(dias_activos(db, usuario_id), dia_colombia(reloj.ahora())),
+        duelos_ganados=duelos_ganados(db, usuario_id),
     )
 
 
@@ -172,6 +187,8 @@ INSIGNIAS: dict[str, tuple[Insignia, Callable[[Estado], bool]]] = {i.codigo: (i,
      lambda e: len(e.records) >= 10),
     (Insignia("constancia", "Constancia", "Juega 3 días seguidos."),
      lambda e: e.racha >= 3),
+    (Insignia("duelista", "Duelista", "Gana tu primer duelo de cartas."),
+     lambda e: e.duelos_ganados >= 1),
 ]}
 
 

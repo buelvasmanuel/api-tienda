@@ -18,7 +18,7 @@
 | Empates | Si dos opciones empatan en el dato que se pregunta, **todas las empatadas son correctas** |
 | XP | La calcula **solo el servidor**. Casos: 20 / 40 / 60 según el nivel, multiplicado por 1 (primer intento), 0,5 (segundo) o 0,25 (tercero o más). Solo se gana la primera vez que se resuelve. Rescates: 10 XP por cada estrella que mejore el récord del jugador en ese estudiante (máx. 30 por estudiante). Duelos (Fase 7): 30 / 15 / 5 por victoria / empate / derrota, solo los 3 primeros del día (CONTRATO_DUELO.md §5) |
 | Niveles | Novato (0 XP) → Investigador (150) → Inspector (400) → Jefe de datos (800) |
-| Insignias | 7, otorgadas por el servidor (§5). Nunca se pierden |
+| Insignias | 8 (7 en la v1; `duelista` desde la Fase 7), otorgadas por el servidor (§5). Nunca se pierden |
 | Racha | Días seguidos con actividad (responder un caso, resolver un rescate o terminar un duelo), en hora de Colombia (UTC−5) |
 | Ranking | Por XP, solo jugadores, por alias; semanal (desde el lunes 00:00 de Colombia) o histórico. Se calcula con SQL (sin Redis) |
 | Fuente de verdad | El progreso **no se guarda como un total**: XP, nivel, racha e insignias salen de los intentos y rescates guardados, así no pueden desincronizarse |

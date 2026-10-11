@@ -1,14 +1,15 @@
 # Arquitectura de `api-tienda`
 
 > Estado verificado contra el código. Primera verificación: **2026-10-11**
-> (commit `52ddbf5`, §10). Última actualización: **Fase 6 (pulido y
-> auditoría final del backend)** del plan de `PROPUESTA_ESTUDIANTES_2.0.md`. Si el código
+> (commit `52ddbf5`, §10). Última actualización: **Fase 7.1 (duelo de cartas
+> contra la máquina)** del plan de `PROPUESTA_ESTUDIANTES_2.0.md`. Si el código
 > cambia, este documento se actualiza en el mismo commit.
 >
 > Los contratos con la app Flutter están aparte:
 > [CONTRATO_AUTH.md](CONTRATO_AUTH.md) (v1.2),
 > [CONTRATO_LABORATORIO.md](CONTRATO_LABORATORIO.md) (v1.1) y
-> [CONTRATO_JUEGO.md](CONTRATO_JUEGO.md) (v1).
+> [CONTRATO_JUEGO.md](CONTRATO_JUEGO.md) (v1) y
+> [CONTRATO_DUELO.md](CONTRATO_DUELO.md) (v1).
 
 ---
 
@@ -42,7 +43,7 @@ api-tienda/
 │   ├── main.py            # FastAPI, handler de 422 sin "input", límites, CORS, cabeceras de seguridad, routers, GET /
 │   ├── config.py          # Settings: DB_*, DB_SSL_CA, CORS_ORIGINS, CLAVE_TOKENS, IP_CLIENTE, ARGON2_*
 │   ├── database.py        # crear_engine(), collation por evento, NAMING_CONVENTION, Base, get_db()
-│   ├── models.py          # Estudiante, Usuario, SesionRefresh, IntentoCaso, Rescate, InsigniaObtenida
+│   ├── models.py          # Estudiante, Usuario, SesionRefresh, IntentoCaso, Rescate, InsigniaObtenida, Duelo
 │   ├── schemas.py         # Esquemas Pydantic (estudiantes, predicción, auth)
 │   ├── ml.py              # Variables, pipeline y utilidades del modelo (compartido script/API)
 │   ├── modelo_juego.py    # Modelo del juego: inferencia y explicación exacta desde el JSON
@@ -50,6 +51,7 @@ api-tienda/
 │   ├── laboratorio.py     # Reglas del rescate: intervenciones, óptimo, estrellas
 │   ├── casos.py           # Catálogo de casos (Modo 2): opciones y respuestas desde los datos
 │   ├── progreso.py        # XP, niveles, racha (UTC−5), insignias y ranking
+│   ├── duelos.py          # Reglas del duelo: cartas con percentiles, reparto, máquina, XP
 │   ├── reloj.py           # reloj.ahora(): UTC sin zona, sustituible en tests
 │   ├── seguridad.py       # Argon2id, PASETO v4.local, refresh opacos (sin BD)
 │   ├── sesiones.py        # Familias de refresh en la BD: abrir, rotar, revocar, listar
@@ -64,8 +66,9 @@ api-tienda/
 │       ├── estadisticas.py
 │       ├── prediccion.py  # CargadorModelo (build) + explicación y lote (modelo del juego)
 │       ├── laboratorio.py # /laboratorio (con sesión; guarda rescates y da XP)
-│       └── juego.py       # /juego (con sesión)
-├── alembic/versions/      # 7 migraciones (§3.2)
+│       ├── juego.py       # /juego (con sesión)
+│       └── duelos.py      # /duelos (con sesión)
+├── alembic/versions/      # 8 migraciones (§3.2)
 ├── scripts/
 │   ├── seed_estudiantes.py  # Faker("es_CO"), semilla 42, --cantidad, --reset
 │   ├── graficas.py          # PNG por estadística (llama a la API con httpx2)
@@ -73,7 +76,7 @@ api-tienda/
 │   ├── congelar_modelo_juego.py  # regenera app/modelo_juego.json (con commit)
 │   ├── generar_clave.py     # valor para CLAVE_TOKENS
 │   └── crear_usuario.py     # alias + --rol; única forma de crear el primer admin
-├── tests/                 # 426 tests (§8)
+├── tests/                 # 462 tests (§8)
 ├── docs/                  # ARQUITECTURA.md (este archivo), CONTRATO_AUTH.md, CONTRATO_LABORATORIO.md
 ├── .github/workflows/tests.yml  # CI: pytest con mariadb:lts y mysql:8.4
 ├── alembic.ini, pytest.ini, render.yaml, .python-version (3.14.7)
@@ -145,6 +148,16 @@ se calculan a partir de estas filas, así no pueden desincronizarse.
 | `rescates` | `id` BIGINT, `usuario_id`, `estudiante_id` NULL, copia de `horas_estudio_inicial` y `asistencia_inicial`, `estudio`, `tutoria`, `fichas`, `probabilidad_inicial/final` NUMERIC(5,4), `logrado`, `estrellas`, `xp`, `version_modelo`, `creado_en` | FK usuario CASCADE; FK estudiante **SET NULL** (el historial sobrevive); CHECK de estrellas 0–3, fichas 0–5, probabilidades 0–1, xp ≥ 0 |
 | `usuarios_insignias` | `usuario_id`, `codigo`, `obtenida_en` | PK (`usuario_id`, `codigo`): una insignia no se repite. El catálogo vive en `app/progreso.py` |
 
+**Duelo (Fase 7).** Un duelo entero en una fila de `duelos`: `id` uuid hex
+(32), `modo` (`maquina`/`jugador`), `estado` (`esperando`/`en_juego`/
+`terminado`/`abandonado`), `jugador_a_id` (quien lo creó) y `jugador_b_id`
+(NULL = la máquina), `mazo_a`/`mazo_b`/`rondas` como JSON en TEXT
+(`JSONTexto`: el tipo JSON nativo difiere entre MariaDB y MySQL), `ronda`,
+`puntos_a/b`, `resultado_a`, `xp_a/b`, `expira_turno_en` (v2) y fechas. CHECK de
+modo, estado, resultado, puntos 0–5, ronda 1–5 y XP ≥ 0. Las jugadas bloquean
+la fila con `FOR UPDATE`. Los mazos son copias: editar un estudiante no
+cambia un duelo empezado.
+
 No hay columna de sucesor: el sucesor de un refresh es `HMAC(clave, refresh)`
 y se encuentra por su hash. Las familias que pasan sus 30 días se borran al
 abrir cualquier sesión (no hay cron en Render free).
@@ -163,7 +176,8 @@ el esquema de los modelos.
 | `1d65ce94be3f` | Collation `utf8mb4_unicode_ci` en la base y las tablas; downgrade no-op |
 | `f9047f24dd9b` | **Borra `productos` y `categorias`**; el downgrade las recrea vacías |
 | `5527590d242a` | Crea `usuarios` y `sesiones_refresh` |
-| `7661ab474407` (head) | Crea `intentos_caso`, `rescates` y `usuarios_insignias` (Fase 5) |
+| `7661ab474407` | Crea `intentos_caso`, `rescates` y `usuarios_insignias` (Fase 5) |
+| `68e8f446b376` (head) | Crea `duelos` (Fase 7) |
 
 ### 3.3 Collation y conexión
 
@@ -292,11 +306,29 @@ Detalle en CONTRATO_JUEGO.md.
 Reglas: casos 20/40/60 XP por nivel × 1, 0,5 o 0,25 según el intento (solo la
 primera vez); rescates 10 XP por estrella que mejore el récord del jugador con
 ese estudiante; niveles en 0, 150, 400 y 800 XP; racha en hora de Colombia
-(UTC−5 fijo, sin depender de la base de zonas horarias); 7 insignias. Las
+(UTC−5 fijo, sin depender de la base de zonas horarias); 8 insignias. Las
 respuestas y las XP las decide el servidor, y las escrituras de XP van
 precedidas de un `FOR UPDATE` sobre el jugador.
 
-### 4.8 Esquemas (Pydantic 2.14)
+### 4.8 Duelo (`/duelos`, con sesión)
+
+Detalle en CONTRATO_DUELO.md.
+
+| Método | Ruta | Respuesta |
+|---|---|---|
+| POST | `/duelos` | `{"modo": "maquina"}` → 201 `DueloOut` (abandona sin XP el duelo contra la máquina que estuviera en juego); 409 `sin_datos` |
+| GET | `/duelos?estado=` | Tus duelos (máx. 20) |
+| GET | `/duelos/{id}` | `DueloOut` desde tu punto de vista; 404 `duelo_no_encontrado` también si no participas |
+| POST | `/duelos/{id}/jugadas` | `{"ronda", "atributo"}` (o `null` en el turno de la máquina), idempotente por ronda; 409 `no_es_tu_turno`, `ronda_incorrecta`, `duelo_terminado`; 422 `atributo_requerido` |
+| POST | `/duelos/{id}/abandonar` | Derrota sin XP (idempotente) |
+
+Reglas: 5 rondas, turno alterno empezando por el jugador; la máquina elige el
+atributo con mayor percentil de su carta; gana el valor más alto; XP 30/15/5
+solo en los 3 primeros duelos terminados del día; insignia `duelista`. La
+respuesta solo lleva la carta propia de la ronda en curso: nunca la del rival
+ni las siguientes (hay un test que lo comprueba).
+
+### 4.9 Esquemas (Pydantic 2.14)
 
 | Esquema | Campos | Notas |
 |---|---|---|
@@ -353,6 +385,7 @@ precedidas de un `FOR UPDATE` sobre el jugador.
 | Token inválido en endpoints públicos (se ignora) | `test_auth.py` |
 | Estrellas, XP o «correcto» enviados por el cliente | `test_laboratorio.py`, `test_juego.py` (422) |
 | Dos respuestas simultáneas del mismo jugador (XP doble) | `test_juego.py::test_dos_respuestas_simultaneas_no_dan_la_xp_dos_veces` |
+| Duelo: ver la carta del rival o las siguientes, jugar fuera de turno, repetir rondas, enviar el ganador, XP por repetición, jugada final doble | `test_duelos.py` |
 
 ---
 
@@ -435,10 +468,10 @@ ningún valor** (`hide_input_in_errors`): antes, pydantic imprimía el valor
 inválido o, si faltaba una variable, el resto de variables, y eso acababa en
 los logs de Render.
 
-**Tests** (426; `pytest -q` en ~15 s; también pasan contra MySQL 8.4): auth 67,
-juego 62, límites 43, estudiantes 42, laboratorio 35, seguridad 33, refresh 33,
-usuarios 29, predicción 22, estadísticas 20, predicción del juego 15, modelo de
-usuarios 15, modelo del juego 9, migraciones 1.
+**Tests** (462; `pytest -q` en ~16 s; también pasan contra MySQL 8.4): auth 67,
+juego 62, límites 43, estudiantes 42, duelos 36, laboratorio 35, seguridad 33,
+refresh 33, usuarios 29, predicción 22, estadísticas 20, predicción del juego
+15, modelo de usuarios 15, modelo del juego 9, migraciones 1.
 
 - `conftest.py` fija antes de importar la app una `CLAVE_TOKENS` de pruebas,
   Argon2 barato (`t=1, m=64 KiB`), `CORS_ORIGINS` e `IP_CLIENTE`.

@@ -206,7 +206,7 @@ def _asistencia_en_riesgo(estudiantes: list[dict], _: ModeloJuego) -> Evaluacion
 UMBRAL_CORRELACION = 0.1
 
 
-def _correlacion(x: list, y: list) -> float:
+def correlacion(x: list, y: list) -> float:
     try:
         return statistics.correlation([float(v) for v in x], [float(v) for v in y])
     except statistics.StatisticsError:  # menos de 2 datos o una variable constante
@@ -214,7 +214,7 @@ def _correlacion(x: list, y: list) -> float:
 
 
 def _horas_y_promedio(estudiantes: list[dict], _: ModeloJuego) -> Evaluacion:
-    r = _correlacion([e["horas_estudio"] for e in estudiantes], [e["promedio"] for e in estudiantes])
+    r = correlacion([e["horas_estudio"] for e in estudiantes], [e["promedio"] for e in estudiantes])
     correcta = "positiva" if r > UMBRAL_CORRELACION else "negativa" if r < -UMBRAL_CORRELACION else "ninguna"
     return Evaluacion(
         enunciado="¿Cómo se relacionan las horas de estudio con el promedio?",
@@ -251,7 +251,7 @@ def _variable_mas_influyente(_: list[dict], modelo: ModeloJuego) -> Evaluacion:
 
 def _edad_y_riesgo(estudiantes: list[dict], modelo: ModeloJuego) -> Evaluacion:
     coef = modelo.numericas["edad"]["coef"]
-    r = _correlacion([e["edad"] for e in estudiantes], [e["promedio"] for e in estudiantes])
+    r = correlacion([e["edad"] for e in estudiantes], [e["promedio"] for e in estudiantes])
     correcta = "espurio" if abs(r) < UMBRAL_CORRELACION else "asociacion"
     cifras = (f"Correlación real entre edad y promedio: r = {numero(r)}; "
               f"coeficiente de la edad en el modelo: {numero(coef)}.")

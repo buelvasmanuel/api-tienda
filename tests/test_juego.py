@@ -383,7 +383,7 @@ def test_progreso_inicial(jugador):
     assert (p["xp"], p["racha_dias"], p["casos_resueltos"], p["rescates_logrados"]) == (0, 0, 0, 0)
     assert p["nivel"] == {"numero": 1, "nombre": "Novato", "xp_desde": 0}
     assert p["siguiente_nivel"] == {"numero": 2, "nombre": "Investigador", "xp_desde": 150}
-    assert len(p["insignias"]) == 7
+    assert len(p["insignias"]) == 8
     assert all(i["obtenida_en"] is None for i in p["insignias"])
 
 

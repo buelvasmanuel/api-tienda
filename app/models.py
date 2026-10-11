@@ -1,7 +1,8 @@
+import json
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, Numeric, String
+from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, Numeric, String, Text, TypeDecorator
 from sqlalchemy.dialects.mysql import DATETIME
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -173,3 +174,64 @@ class InsigniaObtenida(Base):
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id", ondelete="CASCADE"), primary_key=True)
     codigo: Mapped[str] = mapped_column(String(30), primary_key=True)
     obtenida_en: Mapped[datetime] = mapped_column(FechaHora, default=lambda: reloj.ahora())
+
+
+# ---------- Duelo de cartas (docs/CONTRATO_DUELO.md) ----------
+
+class JSONTexto(TypeDecorator):
+    """JSON guardado como TEXT. El tipo JSON nativo se comporta distinto en
+    MariaDB (un alias de LONGTEXT) y en MySQL, y Alembic los confunde al
+    comparar el esquema; un TEXT con json.dumps/loads es igual en los dos."""
+
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, valor, dialect):
+        return None if valor is None else json.dumps(valor, ensure_ascii=False)
+
+    def process_result_value(self, valor, dialect):
+        return None if valor is None else json.loads(valor)
+
+
+MODOS_DUELO = ("maquina", "jugador")
+ESTADOS_DUELO = ("esperando", "en_juego", "terminado", "abandonado")
+RESULTADOS = ("victoria", "derrota", "empate")
+
+
+class Duelo(Base):
+    """Un duelo entero en una fila: los mazos repartidos (copia de las cartas)
+    y las rondas resueltas. Las jugadas bloquean la fila (FOR UPDATE).
+    El lado "a" es quien creó el duelo; el "b", el rival (NULL = la máquina)."""
+
+    __tablename__ = "duelos"
+    __table_args__ = (
+        CheckConstraint(f"modo IN ({_en(MODOS_DUELO)})", name="modo"),
+        CheckConstraint(f"estado IN ({_en(ESTADOS_DUELO)})", name="estado"),
+        CheckConstraint(f"resultado_a IS NULL OR resultado_a IN ({_en(RESULTADOS)})", name="resultado_a"),
+        CheckConstraint("puntos_a BETWEEN 0 AND 5 AND puntos_b BETWEEN 0 AND 5", name="puntos"),
+        CheckConstraint("xp_a >= 0 AND xp_b >= 0", name="xp"),
+        CheckConstraint("ronda IS NULL OR ronda BETWEEN 1 AND 5", name="ronda"),
+        Index("ix_duelos_jugador_a_id_estado", "jugador_a_id", "estado"),
+        Index("ix_duelos_jugador_b_id_estado", "jugador_b_id", "estado"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)  # uuid4 en hex: no se puede adivinar
+    modo: Mapped[str] = mapped_column(String(10))
+    estado: Mapped[str] = mapped_column(String(12))
+    jugador_a_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id", ondelete="CASCADE"))
+    jugador_b_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id", ondelete="CASCADE"))
+    mazo_a: Mapped[list] = mapped_column(JSONTexto)  # lista de cartas (CartaOut)
+    mazo_b: Mapped[list] = mapped_column(JSONTexto)
+    rondas: Mapped[list] = mapped_column(JSONTexto)  # rondas resueltas: numero, elegido_por, atributo, ganador, r
+    ronda: Mapped[int | None]  # la que toca jugar; NULL al terminar
+    puntos_a: Mapped[int] = mapped_column(default=0)
+    puntos_b: Mapped[int] = mapped_column(default=0)
+    resultado_a: Mapped[str | None] = mapped_column(String(10))  # el del lado b es el contrario
+    xp_a: Mapped[int] = mapped_column(default=0)
+    xp_b: Mapped[int] = mapped_column(default=0)
+    expira_turno_en: Mapped[datetime | None] = mapped_column(FechaHora)  # v2 (jugador contra jugador)
+    creado_en: Mapped[datetime] = mapped_column(FechaHora, default=lambda: reloj.ahora())
+    actualizado_en: Mapped[datetime] = mapped_column(
+        FechaHora, default=lambda: reloj.ahora(), onupdate=lambda: reloj.ahora()
+    )
+    terminado_en: Mapped[datetime | None] = mapped_column(FechaHora)

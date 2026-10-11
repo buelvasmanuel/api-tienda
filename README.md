@@ -450,6 +450,7 @@ api-tienda/
 │   ├── laboratorio.py   # Reglas del rescate: intervenciones, solución óptima, estrellas
 │   ├── casos.py         # Catálogo de los 9 casos (respuestas calculadas con los datos)
 │   ├── progreso.py      # XP, niveles, racha, insignias y ranking
+│   ├── duelos.py        # Reglas del duelo de cartas
 │   ├── reloj.py         # Hora UTC en un solo sitio (los tests la adelantan)
 │   ├── seguridad.py     # Argon2id, PASETO v4.local y refresh tokens (sin BD)
 │   ├── sesiones.py      # Familias de refresh tokens en la BD
@@ -464,7 +465,8 @@ api-tienda/
 │       ├── estadisticas.py # Estadísticas de estudiantes (GROUP BY)
 │       ├── prediccion.py  # Predicción, explicación y lote
 │       ├── laboratorio.py # /laboratorio: casos de rescate
-│       └── juego.py       # /juego: casos, progreso, ranking, jugadores
+│       ├── juego.py       # /juego: casos, progreso, ranking, jugadores
+│       └── duelos.py      # /duelos: duelo de cartas
 ├── scripts/
 │   ├── seed_estudiantes.py # Genera estudiantes de prueba (Faker)
 │   ├── graficas.py      # PNG de las estadísticas (matplotlib)
@@ -492,7 +494,8 @@ api-tienda/
 │   ├── test_prediccion_juego.py # /prediccion/explicacion y /riesgo/lote
 │   ├── test_modelo_juego.py # Inferencia propia = scikit-learn; aportes = SHAP
 │   ├── test_laboratorio.py # Reglas del rescate y /laboratorio
-│   └── test_juego.py    # Casos, XP, insignias, ranking, rescates guardados, concurrencia
+│   ├── test_juego.py    # Casos, XP, insignias, ranking, rescates guardados, concurrencia
+│   └── test_duelos.py   # Duelo: reglas, anti-trampa, reintentos, XP diaria, concurrencia
 ├── docs/
 │   ├── ARQUITECTURA.md  # Estado verificado del backend y deuda técnica
 │   └── CONTRATO_AUTH.md # Contrato de autenticación con la app Flutter
@@ -634,3 +637,18 @@ nivel salen de los intentos guardados (no hay un total que se desincronice).
 | `GET`  | `/juego/progreso` | XP, nivel, racha, insignias | 200 / 401 |
 | `GET`  | `/juego/ranking?periodo=semana\|siempre` | Clasificación de jugadores por XP | 200 / 401 / 422 |
 | `GET`  | `/juego/jugadores` | Progreso de todos los jugadores (docente, admin) | 200 / 401 / 403 |
+
+### Duelo de cartas (con sesión)
+
+Modo 4: cada carta es un estudiante real con promedio, asistencia, horas de
+estudio y semestre (y el percentil de cada valor). El servidor reparte, valida
+cada jugada y calcula el resultado y la XP. Contrato completo en
+[docs/CONTRATO_DUELO.md](docs/CONTRATO_DUELO.md).
+
+| Método | Ruta | Descripción | Respuesta |
+|--------|------|-------------|-----------|
+| `POST` | `/duelos` | Nuevo duelo contra la máquina (`{"modo": "maquina"}`) | 201 / 401 / 409 / 422 |
+| `GET`  | `/duelos` | Mis duelos (`?estado=en_juego\|terminado`) | 200 / 401 |
+| `GET`  | `/duelos/{id}` | Estado del duelo desde mi punto de vista | 200 / 401 / 404 |
+| `POST` | `/duelos/{id}/jugadas` | Juega la ronda (`{"ronda", "atributo"}`; idempotente) | 200 / 401 / 404 / 409 / 422 |
+| `POST` | `/duelos/{id}/abandonar` | Abandona (derrota sin XP) | 200 / 401 / 404 / 409 |

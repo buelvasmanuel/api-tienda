@@ -461,3 +461,103 @@ class JugadorOut(BaseModel):
 
 # ResultadoRescateOut (Laboratorio) usa InsigniaOut y ProgresoResumenOut, definidos después.
 ResultadoRescateOut.model_rebuild()
+
+
+# ---------- Duelo de cartas (docs/CONTRATO_DUELO.md) ----------
+
+AtributoDuelo = Literal["promedio", "asistencia", "horas_estudio", "semestre"]
+Lado = Literal["yo", "rival"]
+
+
+class ValorCartaOut(BaseModel):
+    valor: float | int
+    percentil: int = Field(ge=0, le=100)
+
+
+class CartaOut(BaseModel):
+    estudiante_id: int
+    nombre: str
+    apellido: str
+    carrera: str
+    atributos: dict[AtributoDuelo, ValorCartaOut]
+
+
+class RondaOut(BaseModel):
+    numero: int
+    elegido_por: Lado
+    atributo: AtributoDuelo
+    mi_carta: CartaOut
+    carta_rival: CartaOut
+    ganador: Literal["yo", "rival", "empate"]
+    explicacion: str
+
+
+class RivalOut(BaseModel):
+    tipo: Literal["maquina", "jugador"]
+    alias: str
+
+
+class MarcadorOut(BaseModel):
+    yo: int
+    rival: int
+
+
+class DuelosConXpOut(BaseModel):
+    jugados: int
+    maximo: int
+
+
+class AtributoOut(BaseModel):
+    codigo: AtributoDuelo
+    nombre: str
+    unidad: str
+    descripcion: str
+
+
+Resultado = Literal["victoria", "derrota", "empate"]
+
+
+class DueloOut(BaseModel):
+    id: str
+    modo: Literal["maquina", "jugador"]
+    estado: Literal["esperando", "en_juego", "terminado", "abandonado"]
+    rival: RivalOut
+    rondas_total: int
+    ronda: int | None
+    turno: Lado | None
+    marcador: MarcadorOut
+    mi_carta: CartaOut | None
+    rondas: list[RondaOut]
+    resultado: Resultado | None
+    xp_ganada: int
+    duelos_con_xp_hoy: DuelosConXpOut
+    atributos: list[AtributoOut]
+    expira_turno_en: FechaUTC | None
+    creado_en: FechaUTC
+    actualizado_en: FechaUTC
+    insignias_nuevas: list[InsigniaOut] = []
+    progreso: ProgresoResumenOut | None = None
+
+
+class DueloResumenOut(BaseModel):
+    id: str
+    modo: Literal["maquina", "jugador"]
+    estado: Literal["esperando", "en_juego", "terminado", "abandonado"]
+    rival: RivalOut
+    marcador: MarcadorOut
+    resultado: Resultado | None
+    xp_ganada: int
+    creado_en: FechaUTC
+
+
+class DuelosOut(BaseModel):
+    duelos: list[DueloResumenOut]
+
+
+class NuevoDueloEntrada(Entrada):
+    modo: Literal["maquina"]  # la v2 añadirá "jugador"
+
+
+class JugadaEntrada(Entrada):
+    ronda: int = Field(ge=1, le=5)
+    atributo: AtributoDuelo | None

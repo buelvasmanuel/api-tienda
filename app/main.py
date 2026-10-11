@@ -13,7 +13,7 @@ from app import middleware
 from app.config import settings
 from app.database import get_db
 from app.errores import error
-from app.routers import auth, estadisticas, estudiantes, juego, laboratorio, prediccion, usuarios
+from app.routers import auth, duelos, estadisticas, estudiantes, juego, laboratorio, prediccion, usuarios
 
 # Logs de la app (eventos de seguridad: bloqueos, reuso de tokens...). uvicorn
 # solo configura sus propios loggers; sin esto los INFO de "app.*" no se ven.
@@ -80,6 +80,7 @@ app.include_router(estadisticas.router)
 app.include_router(prediccion.router)
 app.include_router(laboratorio.router)
 app.include_router(juego.router)
+app.include_router(duelos.router)
 
 
 @app.get("/")
