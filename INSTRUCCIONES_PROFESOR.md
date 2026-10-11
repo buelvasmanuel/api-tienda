@@ -69,6 +69,11 @@ flutter doctor
 
 En `flutter doctor` debe salir ✓ en **Visual Studio** (para `-d windows`) o en **Chrome** (para `-d chrome`).
 
+Los sonidos (opcionales, apagados por defecto) no necesitan nada en Windows:
+Media Foundation reproduce MP3. Solo en las ediciones **N** de Windows hay que
+instalar el *Media Feature Pack* (Configuración → Aplicaciones → Características
+opcionales).
+
 ### 2. Base de datos
 
 Abrir **"Command Prompt (MariaDB 11.x)"** desde el menú Inicio (o cualquier CMD si `mariadb` está en el PATH):
@@ -217,14 +222,16 @@ flutter run -d <id-del-celular> --dart-define=API_URL=http://127.0.0.1:8000
 sudo apt update
 sudo apt install python3 python3-venv python3-pip git mariadb-server \
   clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev \
-  libsecret-1-dev
+  libsecret-1-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+  gstreamer1.0-plugins-base gstreamer1.0-plugins-good
 sudo systemctl enable --now mariadb
 ```
 
 **Arch Linux:**
 
 ```bash
-sudo pacman -S python git mariadb clang cmake ninja pkgconf gtk3 libsecret
+sudo pacman -S python git mariadb clang cmake ninja pkgconf gtk3 libsecret \
+  gstreamer gst-plugins-base gst-plugins-good
 sudo mariadb-install-db --user=mysql --basedir=/usr --datadir=/var/lib/mysql
 sudo systemctl enable --now mariadb
 ```
