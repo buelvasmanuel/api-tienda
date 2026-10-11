@@ -1,13 +1,21 @@
 # Contrato del Duelo de cartas (Modo 4, Fase 7)
 
-> Contrato entre `api-tienda` y `app_estudiantes`. Versión **1** (duelo contra
-> la máquina), 2026-10-11. Autenticación, formato de errores
-> (`{"detail": {"codigo", "mensaje"}}`) e interceptor: CONTRATO_AUTH.md.
-> XP, insignias y ranking: CONTRATO_JUEGO.md (este contrato añade el duelo).
->
-> La v1 ya está pensada para la **v2 (jugador contra jugador, §7)**: los
-> mismos recursos, el mismo estado y las mismas jugadas; la v2 solo añade el
-> emparejamiento, el tiempo por turno y un canal WebSocket de avisos.
+> Contrato entre `api-tienda` y `app_estudiantes`. Versión **2**, 2026-10-12:
+> duelo contra la máquina (v1) y **jugador contra jugador** (v2, §7 y §8).
+> Autenticación, formato de errores (`{"detail": {"codigo", "mensaje"}}`) e
+> interceptor: CONTRATO_AUTH.md. XP, insignias y ranking: CONTRATO_JUEGO.md.
+
+### Cambios de la v2 (todo lo de la v1 sigue igual)
+
+| Cambio | Dónde |
+|---|---|
+| `POST /duelos {"modo": "jugador"}`: busca rival; si no hay, el duelo queda `esperando` (60 s) | §7.1 |
+| Turno de 45 s (`expira_turno_en`); si vence, la ronda es para el rival; 2 turnos vencidos seguidos = abandono | §7.2 |
+| `RondaOut` gana `motivo` (`"jugada"` / `"tiempo"`); `atributo` es `null` si la ronda se perdió por tiempo | §3 |
+| `DueloOut` gana `rival_en_linea` (`null` contra la máquina) y `rival.alias` puede ser `null` mientras se espera | §3 |
+| Nuevo error `409 tiempo_agotado` y `409 duelo_en_curso` | §4.4, §7.1 |
+| XP propia del modo jugador (40/20/10, máx. 3 al día) | §7.4 |
+| WebSocket `/duelos/{id}/ws` de avisos: qué viaja por él y cómo se autentica | §8 |
 
 ---
 
@@ -18,7 +26,7 @@
 | Cartas | Cada carta es un **estudiante real** con 4 atributos: `promedio`, `asistencia`, `horas_estudio`, `semestre`. Cada valor viene con su **percentil** entre todos los estudiantes |
 | Reparto | El servidor baraja y reparte **5 cartas distintas** a cada lado. Cada mazo se guarda en el servidor al empezar (una copia de los valores: si después se edita un estudiante, el duelo no cambia) |
 | Rondas | 5. En cada ronda, cada lado juega la siguiente carta de su mazo. Quien tiene el turno elige un atributo **viendo solo su carta**; gana la ronda el valor **más alto**; si empatan, nadie suma |
-| Turno | Ronda 1: el jugador. Después se alterna (jugador, máquina, jugador…) |
+| Turno | Ronda 1: quien creó el duelo (contra la máquina, el jugador). Después se alterna |
 | Máquina | Elige siempre el atributo en el que **su carta tiene el percentil más alto** (si empatan, en el orden de §2). Es determinista a propósito: el búho la puede explicar |
 | Resultado | Gana quien sume más rondas; con los mismos puntos, empate |
 | Anti-trampa | El servidor reparte, guarda los mazos, decide el turno, valida cada jugada y calcula el resultado y la XP. El cliente **nunca ve la carta del rival antes de que se resuelva la ronda**, ni las cartas que vienen después |
@@ -75,7 +83,9 @@ se pueden comparar, pero «percentil 85» y «percentil 60» sí.
 }
 ```
 `elegido_por` y `ganador`: `"yo"`, `"rival"` (y `"empate"` en `ganador`), siempre
-desde el punto de vista de quien pregunta.
+desde el punto de vista de quien pregunta. **v2:** `"motivo": "jugada"` (lo
+normal) o `"tiempo"` (a quien le tocaba elegir se le acabó el turno: `atributo`
+es `null`, la ronda es para el otro y la explicación lo dice).
 
 **`DueloOut`**
 ```json
@@ -95,6 +105,7 @@ desde el punto de vista de quien pregunta.
   "duelos_con_xp_hoy": {"jugados": 1, "maximo": 3},
   "atributos": [{"codigo": "promedio", "nombre": "Promedio", "unidad": "0–5", "descripcion": "…"}],
   "expira_turno_en": null,
+  "rival_en_linea": null,
   "creado_en": "…Z",
   "actualizado_en": "…Z"
 }
@@ -109,7 +120,14 @@ desde el punto de vista de quien pregunta.
 - `xp_ganada`: la XP que dio este duelo (0 hasta que termina, o si ya se
   agotaron los 3 diarios, o si se abandonó).
 - `duelos_con_xp_hoy`: cuántos duelos con XP lleva hoy quien pregunta.
-- `expira_turno_en`: siempre `null` contra la máquina (en la v2, el límite del turno).
+- `expira_turno_en`: `null` contra la máquina. En modo jugador: hasta cuándo
+  puede elegir quien tiene el turno; mientras `esperando`, hasta cuándo se
+  busca rival.
+- `rival_en_linea` (v2): `true`/`false` según el rival tenga abierto el
+  WebSocket de este duelo; `null` contra la máquina o mientras se espera.
+- `rival` (v2): `{"tipo": "jugador", "alias": "Detective_Ana"}`; mientras
+  `esperando`, `{"tipo": "jugador", "alias": null}`.
+- `duelos_con_xp_hoy`: cuenta los duelos del **mismo modo** que este.
 
 ---
 
@@ -118,12 +136,13 @@ desde el punto de vista de quien pregunta.
 ### 4.1 `POST /duelos`
 
 Cuerpo: `{"modo": "maquina"}` → `201 DueloOut` (ronda 1, turno `"yo"`).
+Con `{"modo": "jugador"}`, ver §7.1.
 
 - Si el jugador ya tenía un duelo contra la máquina `en_juego`, ese duelo se
   da por **abandonado** (sin XP) y empieza uno nuevo: solo hay un duelo
   contra la máquina activo por jugador.
 - `409 {"codigo": "sin_datos"}` si hay menos de 10 estudiantes (no hay cartas).
-- `422` si `modo` no es `"maquina"` (la v2 añadirá `"jugador"`).
+- `422` si `modo` no es `"maquina"` ni `"jugador"`.
 
 ### 4.2 `GET /duelos/{id}`
 
@@ -140,8 +159,9 @@ Sirve para retomar un duelo `en_juego` al abrir la app.
 ### 4.4 `POST /duelos/{id}/jugadas`
 
 Cuerpo: `{"ronda": 2, "atributo": "asistencia"}` (en tu turno) o
-`{"ronda": 2, "atributo": null}` (en el turno del rival: pide que la máquina
-juegue). → `200 DueloOut` con la ronda ya resuelta en `rondas` y la siguiente
+`{"ronda": 2, "atributo": null}` (en el turno de la máquina: pide que juegue).
+Contra otro jugador solo juega quien tiene el turno; el otro espera el aviso
+del WebSocket (§8) o consulta `GET /duelos/{id}`. → `200 DueloOut` con la ronda ya resuelta en `rondas` y la siguiente
 carta en `mi_carta`.
 
 | Error | Cuándo |
@@ -149,7 +169,8 @@ carta en `mi_carta`.
 | `404 duelo_no_encontrado` | No existe o no participas |
 | `409 duelo_terminado` | El duelo ya terminó o se abandonó |
 | `409 ronda_incorrecta` (+ `"ronda_actual": n`) | `ronda` no es la que toca, o repites una ronda ya resuelta con otro atributo |
-| `409 no_es_tu_turno` | Envías un atributo en el turno del rival |
+| `409 no_es_tu_turno` | Envías un atributo en el turno del rival (o, contra un jugador, cualquier jugada en su turno) |
+| `409 tiempo_agotado` | v2: esa ronda ya se resolvió porque se te acabó el turno |
 | `422 atributo_requerido` | Es tu turno y `atributo` es `null` |
 | `422` estándar | Atributo desconocido, campos extra (p. ej. intentar enviar `"ganador"`) |
 
@@ -162,6 +183,8 @@ la respuesta, el cliente reintenta sin miedo.
 
 `200 DueloOut` con `estado = "abandonado"` y `resultado = "derrota"`, sin XP.
 Repetirlo devuelve el mismo estado. `409 duelo_terminado` si ya había terminado.
+v2: abandonar un duelo `esperando` lo cancela (`abandonado`, `resultado: null`);
+abandonar contra un jugador le da a él la victoria (§7.4).
 
 ---
 
@@ -198,36 +221,124 @@ Repetirlo devuelve el mismo estado. `409 duelo_terminado` si ya había terminado
 
 ---
 
-## 7. Diseño para la v2: jugador contra jugador (no implementado aún)
+## 7. Jugador contra jugador (v2)
 
-Lo que la v1 ya deja preparado: `modo`, `rival.tipo`, `turno` desde el punto
-de vista de quien pregunta, `expira_turno_en`, jugadas idempotentes por
-`ronda`, y todo el estado en la base de datos (nada en memoria).
+Mismos recursos, estado y jugadas que contra la máquina. Cambia quién elige
+en los turnos pares (el otro jugador, no la máquina) y se añaden el
+emparejamiento, el tiempo por turno y el WebSocket de avisos (§8).
 
-**Emparejamiento.** `POST /duelos {"modo": "jugador"}`: si hay alguien
-esperando, se emparejan y el duelo pasa a `en_juego`; si no, queda en
-`esperando` (máx. 60 s; después, `abandonado` sin XP). La cola es la tabla de
-duelos en la base, no memoria: sobrevive a un reinicio de Render.
+### 7.1 Emparejamiento: `POST /duelos {"modo": "jugador"}`
 
-**Canal de avisos (WebSocket) — solo avisa, no decide.** `GET /duelos/{id}/ws`.
-El primer mensaje del cliente es `{"tipo": "auth", "token": "<access>"}` (el
-token no va en la URL, que acaba en los logs). El servidor envía
-`emparejado`, `turno`, `ronda_resuelta`, `rival_desconectado`,
-`rival_reconectado` y `terminado`, cada uno con el `DueloOut` completo. Las
-**jugadas se siguen enviando por REST** (§4.4, validadas e idempotentes): si
-el WebSocket se cae, el cliente no pierde nada y sigue con `GET /duelos/{id}`
-cada pocos segundos.
+| Situación | Respuesta |
+|---|---|
+| Alguien lleva menos de 60 s esperando | Os empareja: `201 DueloOut` `en_juego`; **el que esperaba** es el lado que empieza (ronda 1). Al que esperaba le llega `emparejado` por el WebSocket |
+| Nadie esperando | `201 DueloOut` con `estado: "esperando"`, `expira_turno_en` = ahora + 60 s |
+| Ya estás esperando | `200` con ese mismo duelo (pulsar dos veces no crea dos) |
+| Ya tienes un duelo contra un jugador `en_juego` | `409 duelo_en_curso` con `"duelo_id"`: termínalo o abandónalo |
 
-**Tiempo y desconexiones.** Cada turno dura como máximo 45 s
-(`expira_turno_en`); si vence, la ronda la gana el rival. Si un jugador no
-juega en 2 turnos seguidos, el duelo se da por abandonado y gana el otro. Los
-plazos se comprueban **al leer o escribir el duelo** (no hace falta ningún
-proceso en segundo plano, que en Render free podría dormirse).
+- Nunca te empareja contigo mismo. La cola es la propia tabla de duelos (no
+  memoria) y el emparejamiento va en fila (un candado en la base), así que dos
+  jugadores que buscan a la vez se emparejan entre sí en vez de quedarse los
+  dos esperando.
+- Si pasan los 60 s sin rival, el duelo pasa a `abandonado` (sin resultado ni
+  XP) la próxima vez que se consulte. El cliente puede ofrecer «jugar contra
+  la máquina».
+- Esperar en una pantalla: abrir el WebSocket (§8) y esperar `emparejado`; o,
+  sin WebSocket, `GET /duelos/{id}` cada 3 s.
 
-**Render dormido o reiniciado.** Se pierden los WebSockets (están en memoria
-de un único proceso), no el duelo. Los clientes reconectan con espera
-creciente (1, 2, 4… hasta 30 s) y se resincronizan con `GET /duelos/{id}`. Un
-duelo en espera cuando Render se duerme caduca por los 60 s.
+### 7.2 Turnos y tiempo
 
-**XP y abusos.** Victoria 40, empate 20, derrota 10, con máximo diario propio
-para que dos cuentas no puedan pasarse XP jugando entre ellas sin límite.
+- Rondas impares: elige el lado que empezó; pares, el otro. Solo puede
+  enviar jugada quien tiene el turno; la ronda se resuelve en ese momento.
+- Cada turno dura **45 s** (`expira_turno_en`). Si vence, la ronda se
+  resuelve sola: es para el rival (`motivo: "tiempo"`) y el turno pasa al
+  siguiente, con otros 45 s contados desde el vencimiento.
+- Si a un jugador se le acaban **2 turnos suyos seguidos**, el duelo se da
+  por abandonado por él: pierde y el otro gana.
+- **No hay temporizadores en el servidor**: los vencimientos se aplican
+  cuando alguien lee o escribe el duelo (`GET`, jugada, abandonar). Así nada
+  depende de que el servidor esté despierto. Por eso, cuando en pantalla
+  llega a 0 la cuenta atrás de `expira_turno_en`, **los dos clientes hacen
+  `GET /duelos/{id}`**: eso aplica el vencimiento y avisa a ambos.
+
+### 7.3 Desconexiones y Render dormido
+
+- Si se cae la red o el WebSocket, el duelo no se pierde: está en la base.
+  Al volver: reconectar el WebSocket y `GET /duelos/{id}`.
+- Si el servidor se reinicia o Render lo duerme, se cierran todos los
+  WebSockets (viven en memoria del único proceso). Los clientes reconectan
+  con espera creciente (1, 2, 4, 8… hasta 30 s) y, mientras tanto, usan
+  `GET /duelos/{id}` cada 3 s.
+- Si los dos se van, al volver cualquiera de ellos los turnos vencidos se
+  resuelven de golpe (y, con 2 seguidos sin jugar, el duelo termina).
+- `rival_en_linea` dice si el rival tiene el WebSocket abierto: sirve para
+  mostrar «tu rival se desconectó»; no cambia las reglas (lo que cuenta es el
+  tiempo del turno).
+
+### 7.4 XP y abandonos
+
+- Victoria 40, empate 20, derrota 10. Solo los **3 primeros duelos contra
+  jugadores terminados cada día** (aparte de los 3 contra la máquina).
+- Quien abandona (o pierde 2 turnos seguidos por tiempo) no gana XP.
+- Quien gana por abandono del otro recibe la XP de victoria **solo si ya se
+  habían resuelto al menos 3 rondas**: así no se puede regalar XP a un amigo
+  abandonando nada más empezar.
+- La insignia `duelista` vale igual para victorias contra jugadores.
+
+---
+
+## 8. El WebSocket, en simple
+
+**Qué es.** Una conexión que se queda abierta entre la app y la API para que
+la API pueda **avisar** sin que la app pregunte. Con REST, la app pregunta y
+la API responde; con el WebSocket, la API puede decir «tu rival ya jugó» en
+cuanto ocurre.
+
+**Qué viaja por él: solo avisos.** Cada aviso trae el `DueloOut` completo,
+desde el punto de vista de quien lo recibe:
+
+| `tipo` | Cuándo |
+|---|---|
+| `listo` | Justo después de autenticarse: el estado actual |
+| `emparejado` | Alguien se unió a tu duelo en espera |
+| `ronda_resuelta` | Se resolvió una ronda (por jugada o por tiempo) |
+| `terminado` | El duelo terminó o alguien abandonó |
+| `rival_conectado` / `rival_desconectado` | El rival abrió o cerró su WebSocket |
+
+**Qué sigue por REST: todo lo que cambia el duelo.** Crear y buscar rival,
+jugar, abandonar y consultar van por los endpoints de §4, con sus
+validaciones, sus errores y sus reintentos seguros. El WebSocket **no
+decide nada**: si se cae, la app no pierde nada y puede seguir jugando solo
+con REST (`GET /duelos/{id}` cada pocos segundos). Así el juego funciona
+igual con mala conexión o con Render reiniciándose.
+
+**Cómo se autentica sin poner el token en la URL.** Las URL quedan
+guardadas en logs de proxies y servidores, así que un token ahí se filtraría.
+Y los navegadores no dejan añadir la cabecera `Authorization` a un
+WebSocket. Por eso:
+
+1. La app abre `wss://…/duelos/{id}/ws` sin token.
+2. Su **primer mensaje** es `{"tipo": "auth", "token": "<access_token>"}`.
+3. La API comprueba el token igual que en REST (firma, caducidad, usuario
+   activo, sesión no cerrada) y que eres participante del duelo, y responde
+   `listo`. Si no llega el mensaje en 10 s, o no es válido, cierra la
+   conexión con un código que dice por qué.
+
+Una vez dentro, la conexión sigue valiendo aunque el access token caduque a
+los 15 min (ya se comprobó al entrar). La API también comprueba el origen
+(`Origin`) de las conexiones que vienen de un navegador: solo acepta la web
+de la app.
+
+**Mensajes de la app al servidor**: solo `auth` (el primero) y
+`{"tipo": "ping"}` cada 25 s, al que la API contesta `{"tipo": "pong"}`. El
+ping evita que los proxies (Cloudflare, Render) corten una conexión callada.
+
+**Códigos de cierre**
+
+| Código | Motivo | Qué hace la app |
+|---|---|---|
+| 4401 | Token ausente, inválido o caducado | Refrescar el token y reconectar |
+| 4403 | Origen no permitido o cuenta desactivada | No reconectar |
+| 4404 | El duelo no existe o no participas | No reconectar |
+| 4408 | No llegó el mensaje `auth` en 10 s | Reconectar |
+| 1000/1001/1006 | Cierre normal, servidor reiniciándose o red caída | Reconectar con espera creciente y `GET /duelos/{id}` |
