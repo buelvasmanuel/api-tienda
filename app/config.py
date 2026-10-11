@@ -50,7 +50,14 @@ class Settings(BaseSettings):
 
     # utf-8 explícito: en Windows la codificación por defecto es cp1252 y una
     # contraseña con "ñ" o tildes se leería mal.
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        # Un error de configuración no debe imprimir valores: sin esto, pydantic
+        # pone en el mensaje (y en los logs de Render) el valor inválido o, si
+        # falta una variable, todas las demás (contraseña de la base incluida).
+        hide_input_in_errors=True,
+    )
 
     @field_validator("CLAVE_TOKENS")
     @classmethod

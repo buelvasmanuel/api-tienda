@@ -62,7 +62,7 @@ api-tienda/
 │   ├── entrenar_modelo.py   # CV estratificada 5 particiones, elige por F2, --sin-graficas
 │   ├── generar_clave.py     # valor para CLAVE_TOKENS
 │   └── crear_usuario.py     # alias + --rol; única forma de crear el primer admin
-├── tests/                 # 291 tests (§8)
+├── tests/                 # 294 tests (§8)
 ├── docs/                  # ARQUITECTURA.md (este archivo), CONTRATO_AUTH.md
 ├── .github/workflows/tests.yml  # CI: pytest con mariadb:lts y mysql:8.4
 ├── alembic.ini, pytest.ini, render.yaml, .python-version (3.14.7)
@@ -344,8 +344,14 @@ httpx2 2.13.1, matplotlib 3.11.2, pytest 9.1.1.
 | `IP_CLIENTE` | `conexion` | `conexion`, `x-forwarded-for:N` (N desde la derecha) o nombre de cabecera; `x-forwarded-for` a secas se rechaza |
 | `ARGON2_TIEMPO`, `ARGON2_MEMORIA_KIB`, `ARGON2_PARALELISMO`, `ARGON2_CONCURRENCIA` | 2, 19456, 1, 2 | Coste de Argon2id |
 
-**Tests** (291; `pytest -q` en ~9 s; también pasan contra MySQL 8.4): auth 67,
-estudiantes 42, seguridad 33, refresh 33, límites 31, usuarios 28, predicción
+Un error de configuración (variable que falta o con formato inválido) detiene
+el arranque y el build con un mensaje que nombra la variable **sin mostrar
+ningún valor** (`hide_input_in_errors`): antes, pydantic imprimía el valor
+inválido o, si faltaba una variable, el resto de variables, y eso acababa en
+los logs de Render.
+
+**Tests** (294; `pytest -q` en ~9 s; también pasan contra MySQL 8.4): auth 67,
+estudiantes 42, seguridad 33, refresh 33, límites 34, usuarios 28, predicción
 22, estadísticas 20, modelo de usuarios 14, migraciones 1.
 
 - `conftest.py` fija antes de importar la app una `CLAVE_TOKENS` de pruebas,

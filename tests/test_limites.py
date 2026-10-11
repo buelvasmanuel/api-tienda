@@ -192,3 +192,28 @@ def test_clave_de_tokens_invalida(clave):
 def test_ip_cliente_invalida(modo):
     with pytest.raises(ValidationError, match="IP_CLIENTE"):
         Settings(_env_file=None, **BASE | {"IP_CLIENTE": modo})
+
+
+SECRETOS = {"DB_PASSWORD": "contrasena_secreta_de_la_base", "DB_SSL_CA": "-----BEGIN CERTIFICADO-----",
+            "DB_USER": "avnadmin_secreto"}
+
+
+@pytest.mark.parametrize(
+    "variables",
+    [
+        BASE | SECRETOS | {"CLAVE_TOKENS": "clave_casi_valida_pero_secreta"},  # valor inválido
+        {k: v for k, v in (BASE | SECRETOS).items() if k != "CLAVE_TOKENS"},  # variable que falta
+        BASE | SECRETOS | {"IP_CLIENTE": "x-forwarded-for:0"},
+    ],
+    ids=["clave-invalida", "clave-ausente", "ip-invalida"],
+)
+def test_los_errores_de_configuracion_no_muestran_valores(monkeypatch, variables):
+    monkeypatch.delenv("CLAVE_TOKENS", raising=False)
+
+    with pytest.raises(ValidationError) as error:
+        Settings(_env_file=None, **variables)
+
+    mensaje = str(error.value)
+    for valor in [*SECRETOS.values(), variables.get("CLAVE_TOKENS", "-"), "x-forwarded-for:0"]:
+        assert valor not in mensaje
+    assert "input_value" not in mensaje
