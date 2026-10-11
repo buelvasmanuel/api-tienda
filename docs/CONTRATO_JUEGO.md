@@ -96,7 +96,9 @@ dificultad, no bloquea).
 }
 ```
 - `opciones[].valor` es lo que se envía al responder; `texto` es lo que se
-  muestra. Vienen en orden alfabético por `texto`: el cliente puede barajarlas.
+  muestra. Vienen en orden alfabético natural por `texto` (sin distinguir
+  tildes ni mayúsculas y con los números por su valor: «Semestre 2» antes que
+  «Semestre 10»; ajustado en la Fase 6). El cliente puede barajarlas.
 - `grafica`: ruta de la estadística que ayuda, o `null`.
 - No incluye la respuesta ni la pista.
 - `404 {"codigo": "caso_no_encontrado"}` si el código no existe.

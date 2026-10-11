@@ -6,6 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import middleware
 from app.config import settings
 from app.routers import auth, estadisticas, estudiantes, juego, laboratorio, prediccion, usuarios
 
@@ -28,6 +29,13 @@ async def errores_de_validacion(_: Request, exc: RequestValidationError) -> JSON
     errores = [{clave: valor for clave, valor in e.items() if clave != "input"} for e in exc.errors()]
     return JSONResponse(status_code=422, content=jsonable_encoder({"detail": errores}))
 
+
+# Orden de los middlewares: el último que se añade es el más externo. Quedan,
+# de fuera a dentro: cabeceras de seguridad → CORS → errores inesperados →
+# límite del cuerpo → app. Los dos propios van dentro de CORS para que sus
+# respuestas (500, 413) lleven sus cabeceras.
+app.add_middleware(middleware.LimiteDeCuerpo)
+app.middleware("http")(middleware.errores_inesperados)
 
 # Orígenes de CORS_ORIGINS (ver app/config.py). En local vale "*" (cualquier
 # origen, p. ej. Flutter Web en localhost:XXXX); en producción, solo el dominio
@@ -58,6 +66,7 @@ async def cabeceras_de_seguridad(request: Request, call_next):
     for nombre, valor in CABECERAS_SEGURIDAD.items():
         respuesta.headers.setdefault(nombre, valor)
     return respuesta
+
 
 app.include_router(auth.router)
 app.include_router(usuarios.router)

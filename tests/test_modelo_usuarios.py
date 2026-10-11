@@ -11,7 +11,7 @@ from app.models import SesionRefresh, Usuario
 
 
 def nuevo_usuario(db, alias="Ana_01", **campos) -> Usuario:
-    usuario = Usuario(alias=alias, hash_password="$argon2id$x", **campos)
+    usuario = Usuario(alias=alias, **{"hash_password": "$argon2id$x"} | campos)
     db.add(usuario)
     db.flush()
     return usuario
@@ -102,3 +102,15 @@ def test_borrar_un_usuario_borra_sus_sesiones(db_session):
     db_session.flush()
 
     assert db_session.scalars(select(SesionRefresh)).all() == []
+
+
+def test_los_errores_de_sql_no_muestran_los_valores(db_session):
+    # hide_parameters (app/database.py): un INSERT fallido no debe llevar el
+    # hash de la contraseña al mensaje de error (ni, por tanto, a los logs).
+    nuevo_usuario(db_session, "Repetido", hash_password="$argon2id$HASH_QUE_NO_DEBE_SALIR")
+
+    with pytest.raises(IntegrityError) as error:
+        nuevo_usuario(db_session, "repetido", hash_password="$argon2id$HASH_QUE_NO_DEBE_SALIR")
+
+    assert "HASH_QUE_NO_DEBE_SALIR" not in str(error.value)
+    assert "uq_usuarios_alias" in str(error.value) or "Duplicate" in str(error.value)

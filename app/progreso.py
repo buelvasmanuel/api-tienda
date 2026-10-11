@@ -215,3 +215,35 @@ def posiciones(filas: list[tuple[int, str, int]]) -> list[int]:
     for i, (_, _, xp) in enumerate(filas):
         resultado.append(resultado[-1] if i and xp == filas[i - 1][2] else i + 1)
     return resultado
+
+
+# ---------- Vista del docente ----------
+
+@dataclass(frozen=True)
+class ResumenJugador:
+    xp: int
+    casos_resueltos: int
+    rescates_logrados: int
+    insignias: int
+    ultima_actividad: datetime | None
+
+
+def resumen_de_jugadores(db: Session, codigos_casos: set[str]) -> dict[int, ResumenJugador]:
+    """Lo mismo que xp_total, casos_resueltos, records_de_rescate… pero para
+    todos los usuarios a la vez, con una consulta agrupada por dato (y no unas
+    seis por jugador: con 40 alumnos y Aiven a ~20 ms serían varios segundos)."""
+    eventos = _eventos_xp()
+    xp = dict(db.execute(select(eventos.c.usuario_id, func.sum(eventos.c.xp)).group_by(eventos.c.usuario_id)).all())
+    ultima = dict(db.execute(select(eventos.c.usuario_id, func.max(eventos.c.creado_en))
+                             .group_by(eventos.c.usuario_id)).all())
+    resueltos = dict(db.execute(
+        select(IntentoCaso.usuario_id, func.count(IntentoCaso.caso.distinct()))
+        .where(IntentoCaso.correcto, IntentoCaso.caso.in_(codigos_casos)).group_by(IntentoCaso.usuario_id)).all())
+    rescatados = dict(db.execute(
+        select(Rescate.usuario_id, func.count(Rescate.estudiante_id.distinct()))
+        .where(Rescate.logrado, Rescate.estudiante_id.is_not(None)).group_by(Rescate.usuario_id)).all())
+    insignias = dict(db.execute(select(InsigniaObtenida.usuario_id, func.count())
+                                .group_by(InsigniaObtenida.usuario_id)).all())
+    ids = set(xp) | set(insignias)
+    return {i: ResumenJugador(int(xp.get(i, 0)), resueltos.get(i, 0), rescatados.get(i, 0), insignias.get(i, 0),
+                              ultima.get(i)) for i in ids}

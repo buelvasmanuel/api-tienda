@@ -222,3 +222,54 @@ def test_los_errores_de_configuracion_no_muestran_valores(monkeypatch, variables
     for valor in [*SECRETOS.values(), variables.get("CLAVE_TOKENS", "-"), "x-forwarded-for:0"]:
         assert valor not in mensaje
     assert "input_value" not in mensaje
+
+
+# ---------- Cuerpo demasiado grande y errores inesperados (app/middleware.py) ----------
+
+ORIGEN = {"Origin": "https://app.ejemplo.org"}
+
+
+def test_cuerpo_demasiado_grande_con_content_length(client):
+    respuesta = client.post("/auth/login", content=b"x" * (64 * 1024 + 1),
+                            headers=ORIGEN | {"Content-Type": "application/json"})
+
+    assert respuesta.status_code == 413
+    assert codigo(respuesta) == "cuerpo_demasiado_grande"
+    assert respuesta.headers["Access-Control-Allow-Origin"] == "https://app.ejemplo.org"
+
+
+def test_cuerpo_demasiado_grande_por_trozos(client):
+    def trozos():  # sin Content-Length: transferencia por trozos
+        for _ in range(70):
+            yield b"x" * 1024
+
+    respuesta = client.post("/auth/login", content=trozos(), headers=ORIGEN | {"Content-Type": "application/json"})
+
+    assert respuesta.status_code == 413
+    assert codigo(respuesta) == "cuerpo_demasiado_grande"
+
+
+def test_un_cuerpo_normal_pasa(client):
+    assert client.post("/auth/login", json={"alias": "x" * 50, "password": "y" * 100}).status_code == 401
+
+
+def test_error_inesperado_es_un_500_json_con_cors(db_session, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.database import get_db
+    from app.main import app
+
+    def roto():
+        raise RuntimeError("detalle interno que no debe salir")
+
+    app.dependency_overrides[get_db] = roto
+    try:
+        respuesta = TestClient(app, raise_server_exceptions=False).get("/estudiantes/", headers=ORIGEN)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert respuesta.status_code == 500
+    assert respuesta.json() == {"detail": {"codigo": "error_interno", "mensaje": "Error interno del servidor"}}
+    assert "detalle interno" not in respuesta.text
+    assert respuesta.headers["Access-Control-Allow-Origin"] == "https://app.ejemplo.org"
+    assert respuesta.headers["X-Content-Type-Options"] == "nosniff"

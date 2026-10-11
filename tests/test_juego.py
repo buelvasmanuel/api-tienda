@@ -574,3 +574,29 @@ def test_dos_respuestas_simultaneas_no_dan_la_xp_dos_veces(engine):
             for e in db.scalars(select(Estudiante)):
                 db.delete(e)
             db.commit()
+
+
+def test_orden_natural_de_las_opciones():
+    textos = ["Semestre 10", "Semestre 2", "Ingeniería", "Árbol", "administración", "Semestre 1"]
+
+    assert sorted(textos, key=casos.orden_natural) == [
+        "administración", "Árbol", "Ingeniería", "Semestre 1", "Semestre 2", "Semestre 10"]
+
+
+def test_la_vista_del_docente_coincide_con_el_progreso_de_cada_uno(laboratorio, crear_usuario, datos):
+    """resumen_de_jugadores (consultas agrupadas) debe dar lo mismo que /juego/progreso."""
+    responder(laboratorio, "carrera_mas_estudiantes", "Medicina")
+    responder(laboratorio, "carrera_mas_estudiantes", "Derecho")
+    responder(laboratorio, "carrera_mas_riesgo", "Medicina")
+    rescatar(laboratorio, laboratorio.casos[0], ["tutoria"])
+    rescatar(laboratorio, laboratorio.casos[0], ["tutoria"])
+    rescatar(laboratorio, laboratorio.casos[1], ["estudio"])  # no logrado
+    profe = crear_usuario("Profe_1", rol="docente")
+
+    fila = next(j for j in laboratorio.get("/juego/jugadores", headers=cabeceras(profe)).json()
+                if j["alias"] == "detective_1")
+    propio = laboratorio.get("/juego/progreso").json()
+
+    assert (fila["xp"], fila["casos_resueltos"], fila["rescates_logrados"]) == (
+        propio["xp"], propio["casos_resueltos"], propio["rescates_logrados"]) == (10 + 40 + 30, 2, 1)
+    assert fila["insignias"] == sum(1 for i in propio["insignias"] if i["obtenida_en"])

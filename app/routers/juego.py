@@ -169,15 +169,14 @@ def ver_ranking(periodo: Literal["semana", "siempre"] = "semana", usuario: Usuar
 
 @router.get("/jugadores", response_model=list[schemas.JugadorOut])
 def jugadores(_: Usuario = Depends(requiere_rol("docente", "admin")), db: Session = Depends(get_db)):
+    resumenes = progreso.resumen_de_jugadores(db, set(catalogo.CASOS))
+    vacio = progreso.ResumenJugador(0, 0, 0, 0, None)
     lista = []
     for jugador in db.scalars(select(Usuario).where(Usuario.rol == "jugador").order_by(Usuario.alias)):
-        xp = progreso.xp_total(db, jugador.id)
+        r = resumenes.get(jugador.id, vacio)
         lista.append(schemas.JugadorOut(
-            id=jugador.id, alias=jugador.alias, activo=jugador.activo, xp=xp,
-            nivel=progreso.nivel_de(xp).nombre,
-            casos_resueltos=len(progreso.casos_resueltos(db, jugador.id) & set(catalogo.CASOS)),
-            rescates_logrados=len(progreso.records_de_rescate(db, jugador.id)),
-            insignias=len(progreso.obtenidas(db, jugador.id)),
-            ultima_actividad=progreso.ultima_actividad(db, jugador.id),
+            id=jugador.id, alias=jugador.alias, activo=jugador.activo, xp=r.xp,
+            nivel=progreso.nivel_de(r.xp).nombre, casos_resueltos=r.casos_resueltos,
+            rescates_logrados=r.rescates_logrados, insignias=r.insignias, ultima_actividad=r.ultima_actividad,
         ))
     return lista

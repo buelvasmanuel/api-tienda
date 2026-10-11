@@ -8,7 +8,9 @@ Las comparaciones usan fracciones exactas (no floats) para que un empate sea
 un empate de verdad: si dos opciones empatan, todas son correctas.
 """
 
+import re
 import statistics
+import unicodedata
 from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -95,8 +97,15 @@ def en_riesgo(e: dict) -> bool:
     return e["promedio"] < UMBRAL
 
 
+def orden_natural(texto: str) -> list:
+    """Clave de orden "humano": sin distinguir tildes ni mayúsculas, y con los
+    números por su valor ("Semestre 2" antes que "Semestre 10")."""
+    sin_tildes = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().casefold()
+    return [int(trozo) if trozo.isdigit() else trozo for trozo in re.split(r"(\d+)", sin_tildes)]
+
+
 def opciones_alfabeticas(valores, texto=str) -> list[Opcion]:
-    return sorted((Opcion(str(v), texto(v)) for v in valores), key=lambda o: o.texto)
+    return sorted((Opcion(str(v), texto(v)) for v in valores), key=lambda o: orden_natural(o.texto))
 
 
 def cargar_estudiantes(db: Session) -> list[dict]:

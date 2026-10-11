@@ -29,6 +29,9 @@ def crear_engine(url: str | URL, **kwargs) -> Engine:
     # comprueba tests/test_juego.py). Los puntos donde importa el orden (login,
     # refresh, XP) bloquean antes la fila que decide con SELECT ... FOR UPDATE.
     kwargs.setdefault("isolation_level", "READ COMMITTED")
+    # hide_parameters: los errores de SQL no incluyen los valores de la consulta
+    # (p. ej. un hash de contraseña en un INSERT fallido), que acabarían en los logs.
+    kwargs.setdefault("hide_parameters", True)
     engine = create_engine(url, connect_args=settings.connect_args, **kwargs)
     event.listen(engine, "connect", _fijar_collation)
     return engine
