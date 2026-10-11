@@ -8,7 +8,9 @@ class Settings(BaseSettings):
     DB_PORT: int = 3306
     DB_NAME: str
 
-    model_config = SettingsConfigDict(env_file=".env")
+    # utf-8 explícito: en Windows la codificación por defecto es cp1252 y una
+    # contraseña con "ñ" o tildes se leería mal.
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     @property
     def database_url(self) -> str:

@@ -3,9 +3,12 @@
 API REST para gestionar los productos de una tienda, construida con
 **FastAPI**, **SQLAlchemy 2.x** y **MariaDB** (a través de PyMySQL).
 
+> **Para ejecutarlo desde cero en Windows o Linux:** ver
+> [INSTRUCCIONES_PROFESOR.md](INSTRUCCIONES_PROFESOR.md).
+
 ## Requisitos
 
-- Python 3.14
+- Python 3.11 o superior (desarrollado con 3.14; 3.10 no sirve: pandas y scikit-learn piden 3.11+)
 - MariaDB (o MySQL)
 
 ### Arch Linux
@@ -24,7 +27,7 @@ sudo apt install python3 python3-venv python3-pip mariadb-server
 sudo systemctl enable --now mariadb
 ```
 
-> Si tu distribución no trae Python 3.14 en sus repositorios, puedes
+> Si tu distribución no trae Python 3.11 o superior en sus repositorios, puedes
 > instalarlo con [pyenv](https://github.com/pyenv/pyenv) o con
 > [uv](https://docs.astral.sh/uv/).
 

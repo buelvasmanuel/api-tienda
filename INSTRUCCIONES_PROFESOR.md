@@ -1,0 +1,289 @@
+# Instrucciones para ejecutar el proyecto
+
+El proyecto tiene dos carpetas:
+
+- **`api-tienda`**: API REST (FastAPI + MariaDB + modelo de scikit-learn).
+- **`app_estudiantes`**: app Flutter que consume la API (Windows, Linux, Chrome o Android).
+
+Orden: **instalar → base de datos → API → app**. La API debe quedar corriendo
+en una terminal mientras se usa la app en otra.
+
+> Este archivo está en las dos carpetas (es el mismo).
+
+---
+
+## WINDOWS
+
+### 1. Instalar
+
+| Programa | Enlace | Notas |
+|---|---|---|
+| **Python 3.11 o superior** (recomendado 3.13) | <https://www.python.org/downloads/windows/> | Marcar **"Add python.exe to PATH"**. 3.10 o anterior **no** sirve. |
+| **MariaDB** (11.4 LTS o superior) | <https://mariadb.org/download/> | El instalador pide una **contraseña de root**: anótala. Dejar marcado "Install as service" y el puerto **3306**. |
+| **Git** | <https://git-scm.com/download/win> | Opciones por defecto. |
+| **Flutter** | <https://docs.flutter.dev/get-started/install/windows/desktop> | Añadir `flutter\bin` al PATH. |
+| **Visual Studio 2022 Community** | <https://visualstudio.microsoft.com/es/downloads/> | Solo para la app de escritorio Windows: carga de trabajo **"Desarrollo para el escritorio con C++"**. (No es VS Code.) |
+
+Comprobar (en una terminal nueva):
+
+```bat
+py --version
+git --version
+flutter doctor
+```
+
+En `flutter doctor` debe salir ✓ en **Visual Studio** (para `-d windows`) o en **Chrome** (para `-d chrome`).
+
+### 2. Base de datos
+
+Abrir **"Command Prompt (MariaDB 11.x)"** desde el menú Inicio (o cualquier CMD si `mariadb` está en el PATH):
+
+```bat
+mariadb -u root -p
+```
+
+Escribir la contraseña de root que se puso al instalar y pegar:
+
+```sql
+CREATE DATABASE tienda_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'tienda_user'@'localhost' IDENTIFIED BY 'tienda_pass_123';
+GRANT ALL PRIVILEGES ON tienda_db.* TO 'tienda_user'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+### 3. Backend (API)
+
+**CMD:**
+
+```bat
+cd ruta\a\api-tienda
+py -m venv venv
+venv\Scripts\activate
+python -m pip install --upgrade pip
+pip install -r requirements-dev.txt
+copy .env.example .env
+notepad .env
+```
+
+**PowerShell:**
+
+```powershell
+cd ruta\a\api-tienda
+py -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements-dev.txt
+Copy-Item .env.example .env
+notepad .env
+```
+
+Si PowerShell dice *"la ejecución de scripts está deshabilitada en este sistema"*:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+(o, solo para esa ventana: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`) y repetir `.\venv\Scripts\Activate.ps1`.
+
+Con el venv activado el prompt empieza por **`(venv)`**.
+
+En `.env` basta con que `DB_PASSWORD` coincida con la del `CREATE USER`
+(si se usó la del ejemplo, no hay que cambiar nada):
+
+```ini
+DB_USER=tienda_user
+DB_PASSWORD=tienda_pass_123
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=tienda_db
+```
+
+### 4. Preparar los datos
+
+Con el venv activado, en la carpeta `api-tienda`:
+
+```bat
+alembic upgrade head
+python -m scripts.seed_estudiantes
+python -m scripts.entrenar_modelo
+```
+
+1. Crea las tablas. 2. Inserta 300 estudiantes de prueba. 3. Entrena el modelo de riesgo (`modelos/riesgo.joblib`).
+
+### 5. Arrancar la API
+
+```bat
+uvicorn app.main:app --reload --host 0.0.0.0
+```
+
+Si el Firewall de Windows pregunta, **Permitir acceso** (redes privadas).
+Abrir <http://127.0.0.1:8000/docs> → debe verse Swagger UI.
+**Dejar esta terminal abierta.**
+
+### 6. App Flutter
+
+En **otra** terminal:
+
+```bat
+cd ruta\a\app_estudiantes
+flutter pub get
+flutter run -d windows
+```
+
+Alternativa en el navegador: `flutter run -d chrome`.
+
+**Celular Android por USB** (depuración USB activada; `adb` viene con Android Studio, en `%LOCALAPPDATA%\Android\Sdk\platform-tools`):
+
+```bat
+adb reverse tcp:8000 tcp:8000
+flutter devices
+flutter run -d <id-del-celular> --dart-define=API_URL=http://127.0.0.1:8000
+```
+
+---
+
+## LINUX
+
+### 1. Instalar
+
+| Programa | Enlace |
+|---|---|
+| **Python 3.11 o superior** | <https://www.python.org/downloads/> (normalmente ya viene; ver abajo) |
+| **MariaDB** | <https://mariadb.org/download/> (o el gestor de paquetes) |
+| **Git** | <https://git-scm.com/download/linux> |
+| **Flutter** | <https://docs.flutter.dev/get-started/install/linux/desktop> |
+
+**Ubuntu / Debian:**
+
+```bash
+sudo apt update
+sudo apt install python3 python3-venv python3-pip git mariadb-server \
+  clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+sudo systemctl enable --now mariadb
+```
+
+**Arch Linux:**
+
+```bash
+sudo pacman -S python git mariadb clang cmake ninja pkgconf gtk3
+sudo mariadb-install-db --user=mysql --basedir=/usr --datadir=/var/lib/mysql
+sudo systemctl enable --now mariadb
+```
+
+Comprobar:
+
+```bash
+python3 --version     # 3.11 o superior
+flutter doctor        # ✓ en "Linux toolchain" (para -d linux) o en Chrome
+```
+
+> Ubuntu 22.04 trae Python 3.10, que **no** sirve. Ubuntu 24.04 (3.12) y Debian 12 (3.11) sí.
+> En 22.04: `sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install python3.12 python3.12-venv`
+> y en el paso 3 usar `python3.12 -m venv venv`.
+
+### 2. Base de datos
+
+En Linux se entra como administrador con `sudo` (sin contraseña de root):
+
+```bash
+sudo mariadb
+```
+
+```sql
+CREATE DATABASE tienda_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'tienda_user'@'localhost' IDENTIFIED BY 'tienda_pass_123';
+GRANT ALL PRIVILEGES ON tienda_db.* TO 'tienda_user'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+### 3. Backend (API)
+
+```bash
+cd ruta/a/api-tienda
+python3 -m venv venv
+source venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements-dev.txt
+cp .env.example .env
+nano .env        # DB_PASSWORD debe coincidir con la del CREATE USER
+```
+
+### 4. Preparar los datos
+
+```bash
+alembic upgrade head
+python -m scripts.seed_estudiantes
+python -m scripts.entrenar_modelo
+```
+
+### 5. Arrancar la API
+
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0
+```
+
+Abrir <http://127.0.0.1:8000/docs>. **Dejar esta terminal abierta.**
+
+### 6. App Flutter
+
+En otra terminal:
+
+```bash
+cd ruta/a/app_estudiantes
+flutter pub get
+flutter run -d linux        # o: flutter run -d chrome
+```
+
+**Celular Android por USB:**
+
+```bash
+adb reverse tcp:8000 tcp:8000
+flutter devices
+flutter run -d <id-del-celular> --dart-define=API_URL=http://127.0.0.1:8000
+```
+
+---
+
+## Verificación rápida
+
+| Dónde | Qué debe verse |
+|---|---|
+| <http://127.0.0.1:8000/docs> | Swagger con los grupos Productos, Categorías, Estudiantes, Estadísticas y Predicción |
+| App → **Estudiantes** | "300 de 300" y el filtro **"En riesgo (55)"**; promedios < 3.0 en rojo. Tocar uno abre el detalle |
+| App → **Gráficas** | "Estudiantes por carrera": Derecho es la más alta (**49**). El desplegable cambia entre 6 estadísticas |
+| App → **Predicción** | Elegir **Psicología** y pulsar Predecir → tarjeta **verde** "Sin riesgo". Elegir **Medicina**, horas en **0** y asistencia en **30 %** → tarjeta **roja** "En riesgo". Abajo: métricas del modelo (recall 73 %) |
+
+Tests de la API (opcional; usan una base aparte, `tienda_test`):
+
+```sql
+-- en mariadb (Windows: mariadb -u root -p · Linux: sudo mariadb)
+CREATE DATABASE tienda_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+GRANT ALL PRIVILEGES ON tienda_test.* TO 'tienda_user'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+```bash
+pytest           # en api-tienda, con el venv activado → 133 passed
+flutter test     # en app_estudiantes → 32 tests passed
+```
+
+---
+
+## Problemas frecuentes
+
+| Síntoma | Solución |
+|---|---|
+| **Puerto 8000 ocupado** (`[Errno 10048]` en Windows, `address already in use` en Linux) | Usar otro puerto: `uvicorn app.main:app --reload --host 0.0.0.0 --port 8001` y en la app `flutter run -d windows --dart-define=API_URL=http://127.0.0.1:8001`. Ver quién lo usa: Windows `netstat -ano \| findstr :8000` → `taskkill /PID <pid> /F`; Linux `sudo ss -ltnp \| grep :8000` |
+| **MariaDB no arranca** / `Can't connect to MySQL server` (2003) | Windows (CMD como administrador): `net start MariaDB` (o `services.msc` → MariaDB → Iniciar). Linux: `sudo systemctl start mariadb` y ver el error con `sudo journalctl -u mariadb -n 30` |
+| `Access denied for user 'tienda_user'` (1045) | `DB_PASSWORD` en `.env` no coincide con la del `CREATE USER`. Evitar `@ : / #` en la contraseña |
+| **venv no activado**: `No module named 'fastapi'`, `"uvicorn" no se reconoce...`, `alembic: command not found` | Activar el venv (Windows CMD `venv\Scripts\activate`, PowerShell `.\venv\Scripts\Activate.ps1`, Linux `source venv/bin/activate`). El prompt debe empezar por `(venv)` |
+| `Table 'tienda_db.estudiantes' doesn't exist` | `alembic upgrade head` |
+| **503** "Modelo no entrenado" (pestaña Predicción) | `python -m scripts.entrenar_modelo` (no hace falta reiniciar la API) |
+| **Lista de estudiantes vacía** | `python -m scripts.seed_estudiantes` y en la app pulsar Actualizar |
+| App: "Sin conexión con la API" | La API no está corriendo, o está en otro puerto. Comprobar <http://127.0.0.1:8000/docs> y pulsar **Reintentar** |
+| `pip install` falla con "requires a different Python" / `pandas==3.0.6` | Python es 3.10 o anterior: instalar 3.11+ y recrear el venv (`py -3.13 -m venv venv` en Windows) |
+| Windows: `Unable to find suitable Visual Studio toolchain` | Instalar Visual Studio 2022 con "Desarrollo para el escritorio con C++", o usar `flutter run -d chrome` |
+| Windows: `Building with plugins requires symlink support` | Activar el Modo de desarrollador: `start ms-settings:developers` |
+| Celular: la app no conecta | Repetir `adb reverse tcp:8000 tcp:8000` (se pierde al desconectar el cable) |
