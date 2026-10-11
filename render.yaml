@@ -32,3 +32,13 @@ services:
       # Origen = esquema + dominio, sin la ruta /app-estudiantes/.
       - key: CORS_ORIGINS
         value: https://buelvasmanuel.github.io
+      # Clave de los tokens de sesión: la salida de `python -m scripts.generar_clave`.
+      # Hay que crearla ANTES del deploy: sin ella fallan el build y el arranque.
+      - key: CLAVE_TOKENS
+        sync: false
+      # De dónde sale la IP del cliente para el límite por IP. "conexion" es la
+      # que entrega uvicorn, que detrás del proxy de Render toma la primera de
+      # X-Forwarded-For (falsificable). Cambiar a "x-forwarded-for:N" o a una
+      # cabecera del proxy tras comprobarlo en los logs (docs/ARQUITECTURA.md §9).
+      - key: IP_CLIENTE
+        value: conexion

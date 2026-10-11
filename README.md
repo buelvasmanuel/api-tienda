@@ -371,6 +371,8 @@ entorno, así que en local no cambia nada:
 | `DB_*`         | MariaDB local         | Datos de conexión de Aiven                |
 | `DB_SSL_CA`    | vacía (sin SSL)       | Contenido del `ca.pem` de Aiven (o una ruta al archivo) |
 | `CORS_ORIGINS` | `*`                   | `https://buelvasmanuel.github.io`         |
+| `CLAVE_TOKENS` | la de tu `.env`       | Otra distinta, de `python -m scripts.generar_clave` (crearla **antes** del deploy) |
+| `IP_CLIENTE`   | `conexion`            | `conexion` hasta verificar el proxy (ver docs/ARQUITECTURA.md §9) |
 
 - **Origen de CORS** = esquema + dominio (+ puerto), **sin ruta**: la app de
   `https://buelvasmanuel.github.io/app-estudiantes/` envía la cabecera
