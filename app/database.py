@@ -22,6 +22,13 @@ def crear_engine(url: str | URL, **kwargs) -> Engine:
 
     Lo usan la app, Alembic (alembic/env.py) y los tests (tests/conftest.py).
     """
+    # READ COMMITTED: cada consulta ve lo último confirmado. Con el REPEATABLE
+    # READ por defecto de MySQL/MariaDB, una transacción lee siempre la "foto"
+    # tomada en su primera lectura, aunque luego espere un FOR UPDATE: dos
+    # respuestas simultáneas del mismo jugador darían la XP dos veces (lo
+    # comprueba tests/test_juego.py). Los puntos donde importa el orden (login,
+    # refresh, XP) bloquean antes la fila que decide con SELECT ... FOR UPDATE.
+    kwargs.setdefault("isolation_level", "READ COMMITTED")
     engine = create_engine(url, connect_args=settings.connect_args, **kwargs)
     event.listen(engine, "connect", _fijar_collation)
     return engine
