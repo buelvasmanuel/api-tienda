@@ -141,6 +141,7 @@ DB_HOST=localhost
 DB_PORT=3306
 DB_NAME=tienda_db
 CLAVE_TOKENS=(la salida de generar_clave)
+CORS_ORIGINS=*
 ```
 
 Si falta o es incorrecta, la API no arranca y dice

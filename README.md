@@ -108,6 +108,8 @@ Y rellena los valores:
 | `DB_PORT`     | Puerto de MariaDB                   | `3306`         |
 | `DB_NAME`     | Nombre de la base de datos          | `tienda_db`    |
 | `CLAVE_TOKENS` | Clave de las sesiones (32 bytes en base64url). **Obligatoria** | salida de `python -m scripts.generar_clave` |
+| `CORS_ORIGINS` | Orígenes web permitidos, separados por comas. **Obligatoria** | `*` en local |
+| `IP_CLIENTE`  | De dónde sale la IP para el límite por IP (opcional) | `conexion` (por defecto) |
 
 > ⚠️ **Nunca subas `.env` a Git.** Ya está incluido en `.gitignore`.
 > Comparte solo `.env.example`, que no lleva valores reales.
@@ -260,8 +262,8 @@ SHA-256. Detalles y decisiones en [docs/CONTRATO_AUTH.md](docs/CONTRATO_AUTH.md)
   `sudo firewall-cmd --add-port=8000/tcp`).
 - **CORS** solo afecta a **Flutter Web** (lo aplican los navegadores, no las
   apps nativas). Los orígenes permitidos salen de la variable `CORS_ORIGINS`
-  (separados por comas). Si no se define, vale `*` (cualquier origen), lo
-  cómodo en desarrollo. En producción se pone solo el dominio de la app web.
+  (separados por comas), que es obligatoria: `*` (cualquier origen) en
+  desarrollo y solo el dominio de la app web en producción.
 
 ## Minería de datos: riesgo académico
 
@@ -368,7 +370,7 @@ entorno, así que en local no cambia nada:
 |----------------|-----------------------|-------------------------------------------|
 | `DB_*`         | MariaDB local         | Datos de conexión de Aiven                |
 | `DB_SSL_CA`    | vacía (sin SSL)       | Contenido del `ca.pem` de Aiven (o una ruta al archivo) |
-| `CORS_ORIGINS` | vacía (`*`)           | `https://buelvasmanuel.github.io`         |
+| `CORS_ORIGINS` | `*`                   | `https://buelvasmanuel.github.io`         |
 
 - **Origen de CORS** = esquema + dominio (+ puerto), **sin ruta**: la app de
   `https://buelvasmanuel.github.io/app-estudiantes/` envía la cabecera
@@ -418,6 +420,7 @@ api-tienda/
 │   ├── sesiones.py      # Familias de refresh tokens en la BD
 │   ├── dependencias.py  # usuario_actual, requiere_rol(...)
 │   ├── errores.py       # Errores con código: {"detail": {"codigo", "mensaje"}}
+│   ├── limites.py       # Límite de peticiones por IP (slowapi) e IP del cliente
 │   └── routers/
 │       ├── auth.py        # /auth: registro, login, refresh, sesiones
 │       ├── usuarios.py    # /usuarios: gestión por docentes y admins
@@ -443,6 +446,7 @@ api-tienda/
 │   ├── test_auth.py     # Registro, login, bloqueo y permisos por rol
 │   ├── test_refresh.py  # Rotación, reintentos, reuso, concurrencia, logout
 │   ├── test_usuarios.py # Gestión de usuarios
+│   ├── test_limites.py  # Límite por IP, cabeceras de seguridad, CORS, configuración
 │   ├── test_estudiantes.py
 │   ├── test_estadisticas.py
 │   └── test_prediccion.py

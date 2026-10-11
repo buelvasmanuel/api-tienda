@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import reloj, schemas, seguridad, sesiones
+from app import limites, reloj, schemas, seguridad, sesiones
 from app.database import get_db
 from app.dependencias import SesionActual, sesion_actual, usuario_actual
 from app.errores import demasiados_intentos, error, no_autorizado, validacion_password_igual_al_alias
@@ -81,6 +81,7 @@ def registrar_acierto(usuario: Usuario) -> None:
 
 
 @router.post("/registro", response_model=schemas.TokensOut, status_code=status.HTTP_201_CREATED)
+@limites.limiter.limit(limites.REGISTRO)
 def registro(datos: schemas.RegistroEntrada, request: Request, db: Session = Depends(get_db)):
     """Crea una cuenta de jugador y abre su primera sesión."""
     # Se comprueba antes de calcular el hash para no gastar CPU en balde.
@@ -102,6 +103,7 @@ def registro(datos: schemas.RegistroEntrada, request: Request, db: Session = Dep
 
 
 @router.post("/login", response_model=schemas.TokensOut)
+@limites.limiter.limit(limites.LOGIN)
 def login(datos: schemas.LoginEntrada, request: Request, db: Session = Depends(get_db)):
     """Abre una sesión nueva. Mismo error para alias inexistente y contraseña mala."""
     credenciales_invalidas = no_autorizado("credenciales_invalidas", "Alias o contraseña incorrectos")
@@ -139,6 +141,7 @@ def yo(usuario: Usuario = Depends(usuario_actual)):
 
 
 @router.post("/refresh", response_model=schemas.TokensOut)
+@limites.limiter.limit(limites.REFRESH)
 def refresh(datos: schemas.RefreshEntrada, request: Request, db: Session = Depends(get_db)):
     """Cambia el refresh por uno nuevo y entrega un access nuevo.
 

@@ -16,6 +16,8 @@ from datetime import timedelta
 os.environ["CLAVE_TOKENS"] = "dGVzdHMtdGVzdHMtdGVzdHMtdGVzdHMtdGVzdHMtMzI"  # 32 bytes, solo tests
 os.environ["ARGON2_TIEMPO"] = "1"
 os.environ["ARGON2_MEMORIA_KIB"] = "64"
+os.environ["CORS_ORIGINS"] = "https://app.ejemplo.org"
+os.environ["IP_CLIENTE"] = "conexion"
 
 import pytest  # noqa: E402
 from alembic import command  # noqa: E402
@@ -24,6 +26,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy.engine import Connection, make_url  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
+from app import limites  # noqa: E402
 from app import reloj as reloj_app  # noqa: E402
 from app import seguridad  # noqa: E402
 from app.config import settings  # noqa: E402
@@ -133,3 +136,19 @@ def reloj(monkeypatch) -> RelojFalso:
     falso = RelojFalso(reloj_app.ahora())
     monkeypatch.setattr(reloj_app, "ahora", falso)
     return falso
+
+
+@pytest.fixture(autouse=True)
+def sin_limite_por_ip():
+    """El límite por IP (5 registros/hora...) rompería los tests que registran
+    o inician sesión muchas veces: se apaga, salvo en tests/test_limites.py,
+    que lo enciende con la fixture `limite_por_ip`."""
+    limites.limiter.enabled = False
+    limites.limiter.reset()
+    yield
+    limites.limiter.enabled = True
+
+
+@pytest.fixture
+def limite_por_ip():
+    limites.limiter.enabled = True

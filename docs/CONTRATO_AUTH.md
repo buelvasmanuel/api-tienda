@@ -284,7 +284,8 @@ petición de la sesión y para `/auth/*`.
 | `POST /auth/registro` | 5 / hora | |
 | `POST /auth/refresh` | 30 / minuto | |
 
-Al superarlo: `429 demasiados_intentos` con `Retry-After`. Los contadores
+Al superarlo: `429 demasiados_intentos` con `Retry-After` (la API la expone
+por CORS, así que Flutter Web también puede leerla). Los contadores
 por IP viven en memoria del servidor (se reinician si Render se duerme);
 el bloqueo por cuenta vive en la base de datos.
 

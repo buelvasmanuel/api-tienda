@@ -5,7 +5,9 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
 
+from app import limites
 from app.config import settings
 from app.routers import auth, estadisticas, estudiantes, prediccion, usuarios
 
@@ -18,6 +20,8 @@ logging.getLogger("app").setLevel(logging.INFO)
 
 # Las tablas se crean y modifican con migraciones de Alembic (alembic upgrade head).
 app = FastAPI(title="API Tienda")
+app.state.limiter = limites.limiter
+app.add_exception_handler(RateLimitExceeded, limites.limite_superado)
 
 
 @app.exception_handler(RequestValidationError)
@@ -35,9 +39,29 @@ async def errores_de_validacion(_: Request, exc: RequestValidationError) -> JSON
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+    # Sin esto, Flutter Web no puede leer Retry-After en un 429.
+    expose_headers=["Retry-After"],
+    max_age=600,  # el navegador reutiliza el preflight 10 min
 )
+
+# Cabeceras de seguridad (OWASP) en todas las respuestas. No hay CSP: esta API
+# devuelve JSON, y la única página HTML (/docs) carga Swagger desde un CDN.
+CABECERAS_SEGURIDAD = {
+    "Strict-Transport-Security": "max-age=31536000",  # solo HTTPS (los navegadores la ignoran en http)
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+@app.middleware("http")
+async def cabeceras_de_seguridad(request: Request, call_next):
+    respuesta = await call_next(request)
+    for nombre, valor in CABECERAS_SEGURIDAD.items():
+        respuesta.headers.setdefault(nombre, valor)
+    return respuesta
 
 app.include_router(auth.router)
 app.include_router(usuarios.router)

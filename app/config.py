@@ -1,5 +1,6 @@
 import base64
 import binascii
+import re
 import ssl
 
 from pydantic import field_validator
@@ -20,7 +21,17 @@ class Settings(BaseSettings):
 
     # Orígenes permitidos por CORS, separados por comas. Un origen es solo
     # esquema + dominio (+ puerto), sin ruta: https://usuario.github.io
-    CORS_ORIGINS: str = "*"
+    # Obligatoria: en local "*"; en producción, solo el dominio de la app web.
+    # (Sin valor por defecto para que un despliegue sin ella no quede abierto.)
+    CORS_ORIGINS: str
+
+    # De dónde sale la IP del cliente para el límite de peticiones por IP:
+    # - "conexion": la que ve uvicorn (en local, la real).
+    # - "x-forwarded-for:N": la N-ésima empezando por la derecha de
+    #   X-Forwarded-For (la que añadió el proxy N, contando desde el servidor).
+    #   La primera por la izquierda NO sirve: la puede escribir el cliente.
+    # - Otro texto: nombre de una cabecera que pone el proxy (cf-connecting-ip).
+    IP_CLIENTE: str = "conexion"
 
     # Clave maestra de los tokens: 32 bytes en base64url. De ella se derivan la
     # clave de PASETO y la de los refresh (app/seguridad.py). Sin valor por
@@ -50,6 +61,17 @@ class Settings(BaseSettings):
             raise ValueError("CLAVE_TOKENS no es base64url válido")
         if len(clave) != 32:
             raise ValueError("CLAVE_TOKENS debe tener 32 bytes (python -m scripts.generar_clave)")
+        return valor
+
+    @field_validator("IP_CLIENTE")
+    @classmethod
+    def _modo_ip_valido(cls, valor: str) -> str:
+        valor = valor.strip().lower()
+        # "x-forwarded-for" a secas no vale como nombre de cabecera: es una
+        # lista y su primer elemento lo controla el cliente.
+        valido = re.fullmatch(r"conexion|x-forwarded-for:[1-9]|[a-z0-9-]+", valor)
+        if not valido or valor == "x-forwarded-for":
+            raise ValueError('IP_CLIENTE: "conexion", "x-forwarded-for:N" o un nombre de cabecera')
         return valor
 
     @property
