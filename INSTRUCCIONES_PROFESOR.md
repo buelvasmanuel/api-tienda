@@ -19,7 +19,7 @@ Dos formas de probarlo:
 | | Enlace |
 |---|---|
 | **App web** | <https://buelvasmanuel.github.io/app-estudiantes/> |
-| **APK Android** | <https://github.com/buelvasmanuel/app-estudiantes/releases/latest/download/Estudiantes.apk> |
+| **APK Android** | <https://github.com/buelvasmanuel/app-estudiantes/releases/latest/download/Estudiantes.apk> (Android 7.0 o superior) |
 | **API (Swagger)** | <https://api-tienda-wjac.onrender.com/docs> |
 
 > ⏱️ La API está en el plan gratuito de Render, que **se apaga tras ~15 min sin
