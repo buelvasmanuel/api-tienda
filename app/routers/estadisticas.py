@@ -11,13 +11,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from app import schemas
+from app import ml, schemas
 from app.database import get_db
 from app.models import Estudiante
 
 router = APIRouter(prefix="/estudiantes/estadisticas", tags=["Estadísticas"])
-
-RIESGO = 3  # promedio por debajo del cual un estudiante está en riesgo académico
 
 
 def _a_estadisticas(filas) -> list[schemas.EstadisticaOut]:
@@ -90,7 +88,7 @@ def riesgo_por_carrera(db: Session = Depends(get_db)):
     CASE convierte cada estudiante en 1 (en riesgo) o 0; la media de esos
     unos y ceros es la proporción en riesgo, y por 100 el porcentaje.
     """
-    en_riesgo = case((Estudiante.promedio < RIESGO, 1), else_=0)
+    en_riesgo = case((Estudiante.promedio < ml.UMBRAL_RIESGO, 1), else_=0)
     porcentaje = func.round(100 * func.avg(en_riesgo), 2).label("valor")
     consulta = (
         select(Estudiante.carrera, porcentaje)

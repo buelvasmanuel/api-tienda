@@ -48,6 +48,7 @@ def test_explicacion_carrera_desconocida(client):
     respuesta = explicar(client, carrera="Astrología")
 
     assert respuesta.status_code == 422
+    assert respuesta.json()["detail"]["codigo"] == "carrera_desconocida"
     assert respuesta.json()["detail"]["carreras_validas"] == MODELO.carreras_validas
 
 

@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.database import get_db
 from app.dependencias import requiere_rol
+from app.errores import error
 
 # Leer es público; crear, modificar y borrar, solo un admin.
 solo_admin = [Depends(requiere_rol("admin"))]
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/estudiantes", tags=["Estudiantes"])
 def _buscar(db: Session, estudiante_id: int) -> models.Estudiante:
     estudiante = db.get(models.Estudiante, estudiante_id)
     if not estudiante:
-        raise HTTPException(status_code=404, detail="Estudiante no encontrado")
+        raise error(status.HTTP_404_NOT_FOUND, "estudiante_no_encontrado", "Estudiante no encontrado")
     return estudiante
 
 

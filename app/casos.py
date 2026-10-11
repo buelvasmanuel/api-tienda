@@ -88,8 +88,11 @@ def por(estudiantes: list[dict], campo: str) -> dict[str, list[dict]]:
     return grupos
 
 
+UMBRAL = Decimal(str(ml.UMBRAL_RIESGO))  # el promedio llega como Decimal
+
+
 def en_riesgo(e: dict) -> bool:
-    return e["promedio"] < Decimal(str(ml.UMBRAL_RIESGO))
+    return e["promedio"] < UMBRAL
 
 
 def opciones_alfabeticas(valores, texto=str) -> list[Opcion]:

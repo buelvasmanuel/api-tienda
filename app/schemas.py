@@ -57,6 +57,42 @@ class PrediccionEntrada(BaseModel):
     )
 
 
+class MetricasPruebaOut(BaseModel):
+    accuracy: float | None = None
+    precision: float | None = None
+    recall: float | None = None
+    f1: float | None = None
+    f2: float | None = None
+    matriz_confusion: list[list[int]] | None = Field(default=None, description="[[VN, FP], [FN, VP]]")
+
+
+class DatosEntrenamientoOut(BaseModel):
+    total: int | None = None
+    entrenamiento: int | None = None
+    prueba: int | None = None
+    porcentaje_en_riesgo: float | None = None
+
+
+class MetricasOut(BaseModel):
+    """modelos/metricas.json (lo escribe scripts/entrenar_modelo.py) más las
+    carreras que acepta el modelo cargado. Los campos de la comparación entre
+    modelos van tal cual (extra="allow")."""
+
+    modelo: str
+    carreras_validas: list[str]
+    criterio_seleccion: str | None = None
+    entrenado: str | None = None
+    version_sklearn: str | None = None
+    umbral_riesgo: float | None = None
+    variables: list[str] | None = None
+    datos: DatosEntrenamientoOut | None = None
+    metricas_prueba: MetricasPruebaOut | None = None
+    importancias: dict[str, float] | None = None
+    comparacion: dict[str, dict] | None = None
+
+    model_config = ConfigDict(extra="allow")
+
+
 class PrediccionSalida(BaseModel):
     en_riesgo: bool
     probabilidad: float = Field(ge=0, le=1, description="Probabilidad de estar en riesgo (0-1)")

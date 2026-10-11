@@ -67,7 +67,9 @@ def test_sin_modelo_devuelve_503(sin_modelo, metodo, ruta):
     respuesta = sin_modelo.request(metodo, ruta, json=ENTRADA if metodo == "POST" else None)
 
     assert respuesta.status_code == 503
-    assert "python -m scripts.entrenar_modelo" in respuesta.json()["detail"]
+    detalle = respuesta.json()["detail"]
+    assert detalle["codigo"] == "modelo_no_disponible"
+    assert "python -m scripts.entrenar_modelo" in detalle["mensaje"]
 
 
 # ---------- 200: predicción ----------
@@ -128,6 +130,7 @@ def test_carrera_desconocida_devuelve_422_con_las_validas(con_modelo):
 
     assert respuesta.status_code == 422
     detalle = respuesta.json()["detail"]
+    assert detalle["codigo"] == "carrera_desconocida"
     assert "Veterinaria" in detalle["mensaje"]
     assert detalle["carreras_validas"] == sorted(CARRERAS)
 

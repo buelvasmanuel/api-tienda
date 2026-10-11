@@ -95,7 +95,7 @@ def test_estudiante_inexistente_devuelve_404(admin_client, metodo, cuerpo):
     respuesta = admin_client.request(metodo, "/estudiantes/999", json=cuerpo)
 
     assert respuesta.status_code == 404
-    assert respuesta.json() == {"detail": "Estudiante no encontrado"}
+    assert respuesta.json() == {"detail": {"codigo": "estudiante_no_encontrado", "mensaje": "Estudiante no encontrado"}}
 
 
 # ---------- 422 ----------

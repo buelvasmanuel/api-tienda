@@ -43,8 +43,11 @@ Los errores de autenticación y de `/usuarios` tienen siempre esta forma:
 - Los `422` de validación son los estándar de FastAPI
   (`{"detail": [{"loc": [...], "msg": "...", "type": "..."}]}`) **sin el campo
   `input`** en toda la API: así nunca se devuelve una contraseña enviada.
-- Los endpoints anteriores (`/estudiantes`, `/prediccion`) mantienen su formato
-  (`detail` texto); solo añaden los `401/403` de esta tabla cuando requieren rol.
+- **Desde la Fase 6 toda la API usa este formato** (antes `/estudiantes` y
+  `/prediccion` devolvían `detail` como texto). Los campos que ya existían se
+  conservan: el 422 de carrera desconocida sigue llevando `mensaje` y
+  `carreras_validas` (y `indices` en el lote), ahora junto a `codigo`. La única
+  excepción son los `422` de validación, con el formato estándar de arriba.
 
 ### Códigos
 
@@ -63,6 +66,9 @@ Los errores de autenticación y de `/usuarios` tienen siempre esta forma:
 | 404 | `usuario_no_encontrado` | `/usuarios/{id}` inexistente | — |
 | 409 | `alias_en_uso` | Registro con un alias que ya existe (sin distinguir mayúsculas). En `POST /usuarios/lote` el detalle añade `"aliases": [...]` con los que chocan | Error en el formulario |
 | 409 | `no_puedes_modificarte` | Un admin intenta cambiar su propio rol/estado desde `/usuarios` | — |
+| 404 | `estudiante_no_encontrado` | `/estudiantes/{id}` inexistente (Fase 6; antes, texto) | — |
+| 422 | `carrera_desconocida` | `/prediccion/*` con una carrera que el modelo no conoce; añade `carreras_validas` (y `indices` en el lote) | Mostrar las válidas |
+| 503 | `modelo_no_disponible` | `/prediccion/riesgo` o `/metricas` sin modelo entrenado (Fase 6; antes, texto) | Reintentar más tarde |
 | 429 | `demasiados_intentos` | Límite por cuenta o por IP superado | Esperar `Retry-After` s; mostrar cuenta atrás. **No** reintentar en bucle |
 
 **No existe un código de concurrencia (no hay 409 en `/auth/refresh`).**

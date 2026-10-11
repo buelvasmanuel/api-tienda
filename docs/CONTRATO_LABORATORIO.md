@@ -99,7 +99,7 @@ Cuerpo: `Entrada` → `200 ExplicacionOut`.
 | Error | Cuándo |
 |---|---|
 | `422` estándar | Validación (rangos, campos que faltan) |
-| `422 {"detail": {"mensaje", "carreras_validas"}}` | Carrera desconocida (mismo formato que `/prediccion/riesgo`) |
+| `422 {"detail": {"codigo": "carrera_desconocida", "mensaje", "carreras_validas"}}` | Carrera desconocida (mismo formato que `/prediccion/riesgo`; `codigo` desde la Fase 6) |
 
 ### 3.2 `POST /prediccion/riesgo/lote`
 
@@ -114,7 +114,7 @@ Cuerpo: `{"entradas": [Entrada, …]}` (1–50) →
 ```
 `resultados[i]` corresponde a `entradas[i]`. Una entrada inválida invalida el
 lote entero (`422`; en `loc` va su índice). Carrera desconocida:
-`422 {"detail": {"mensaje", "carreras_validas", "indices": [i, …]}}`.
+`422 {"detail": {"codigo": "carrera_desconocida", "mensaje", "carreras_validas", "indices": [i, …]}}`.
 
 Pensado para el medidor del Laboratorio: con un caso de 5 fichas hay como
 mucho 12 combinaciones de intervenciones, así que el cliente puede pedirlas
