@@ -38,9 +38,11 @@ def crear_estudiante(client, nombre="Ana", edad=20, carrera="Derecho", semestre=
 
 
 @pytest.fixture
-def con_estudiantes(client):
+def con_estudiantes(client, admin_client):
+    """Crea los estudiantes como admin y devuelve el cliente anónimo: las
+    estadísticas son públicas."""
     for nombre, edad, carrera, semestre, promedio, ciudad in ESTUDIANTES:
-        crear_estudiante(client, nombre, edad, carrera, semestre, promedio, ciudad)
+        crear_estudiante(admin_client, nombre, edad, carrera, semestre, promedio, ciudad)
     return client
 
 
@@ -93,11 +95,11 @@ def test_por_ciudad_desempata_por_nombre(con_estudiantes):
     ]
 
 
-def test_por_ciudad_devuelve_solo_top_10(client):
+def test_por_ciudad_devuelve_solo_top_10(client, admin_client):
     # 11 ciudades: "Ciudad 11" tiene 2 estudiantes, el resto 1.
     for i in range(1, 12):
-        crear_estudiante(client, ciudad=f"Ciudad {i:02d}")
-    crear_estudiante(client, ciudad="Ciudad 11")
+        crear_estudiante(admin_client, ciudad=f"Ciudad {i:02d}")
+    crear_estudiante(admin_client, ciudad="Ciudad 11")
 
     resultado = estadistica(client, "por-ciudad")
 

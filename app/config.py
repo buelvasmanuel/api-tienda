@@ -1,5 +1,8 @@
+import base64
+import binascii
 import ssl
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,9 +22,39 @@ class Settings(BaseSettings):
     # esquema + dominio (+ puerto), sin ruta: https://usuario.github.io
     CORS_ORIGINS: str = "*"
 
+    # Clave maestra de los tokens: 32 bytes en base64url. De ella se derivan la
+    # clave de PASETO y la de los refresh (app/seguridad.py). Sin valor por
+    # defecto: si falta, la app no arranca. Generar con:
+    #   python -m scripts.generar_clave
+    CLAVE_TOKENS: str
+
+    # Coste de Argon2id. Por defecto, el mínimo que recomienda OWASP
+    # (t=2, m=19 MiB, p=1). Los tests lo bajan para ir rápido.
+    ARGON2_TIEMPO: int = 2
+    ARGON2_MEMORIA_KIB: int = 19 * 1024
+    ARGON2_PARALELISMO: int = 1
+    # Hashes simultáneos como máximo: cada uno reserva ARGON2_MEMORIA_KIB y
+    # Render free tiene 512 MB y 0,1 CPU.
+    ARGON2_CONCURRENCIA: int = 2
+
     # utf-8 explícito: en Windows la codificación por defecto es cp1252 y una
     # contraseña con "ñ" o tildes se leería mal.
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+    @field_validator("CLAVE_TOKENS")
+    @classmethod
+    def _clave_de_32_bytes(cls, valor: str) -> str:
+        try:
+            clave = base64.urlsafe_b64decode(valor + "=" * (-len(valor) % 4))
+        except (binascii.Error, ValueError):
+            raise ValueError("CLAVE_TOKENS no es base64url válido")
+        if len(clave) != 32:
+            raise ValueError("CLAVE_TOKENS debe tener 32 bytes (python -m scripts.generar_clave)")
+        return valor
+
+    @property
+    def clave_tokens(self) -> bytes:
+        return base64.urlsafe_b64decode(self.CLAVE_TOKENS + "=" * (-len(self.CLAVE_TOKENS) % 4))
 
     @property
     def database_url(self) -> str:

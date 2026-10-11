@@ -16,24 +16,24 @@ ESTUDIANTE = {
 }
 
 
-def crear_estudiante(client, **cambios):
-    respuesta = client.post("/estudiantes/", json=ESTUDIANTE | cambios)
+def crear_estudiante(admin_client, **cambios):
+    respuesta = admin_client.post("/estudiantes/", json=ESTUDIANTE | cambios)
     assert respuesta.status_code == 201, respuesta.text
     return respuesta.json()
 
 
 # ---------- 201 ----------
 
-def test_crear_estudiante_devuelve_201(client):
-    respuesta = client.post("/estudiantes/", json=ESTUDIANTE)
+def test_crear_estudiante_devuelve_201(admin_client):
+    respuesta = admin_client.post("/estudiantes/", json=ESTUDIANTE)
 
     assert respuesta.status_code == 201
     datos = respuesta.json()
     assert datos == ESTUDIANTE | {"id": datos["id"]}
 
 
-def test_crear_estudiante_quita_espacios(client):
-    datos = crear_estudiante(client, nombre="  Ana ", ciudad=" Bello  ")
+def test_crear_estudiante_quita_espacios(admin_client):
+    datos = crear_estudiante(admin_client, nombre="  Ana ", ciudad=" Bello  ")
 
     assert (datos["nombre"], datos["ciudad"]) == ("Ana", "Bello")
 
@@ -45,23 +45,23 @@ def test_crear_estudiante_quita_espacios(client):
      {"horas_estudio": 40}, {"asistencia": 0}, {"asistencia": 100}],
     ids=lambda c: "-".join(f"{k}={v}" for k, v in c.items()),
 )
-def test_valores_en_el_limite_se_aceptan(client, cambios):
-    crear_estudiante(client, **cambios)
+def test_valores_en_el_limite_se_aceptan(admin_client, cambios):
+    crear_estudiante(admin_client, **cambios)
 
 
 # ---------- 200 ----------
 
-def test_listar_estudiantes_empieza_vacio(client):
-    respuesta = client.get("/estudiantes/")
+def test_listar_estudiantes_empieza_vacio(admin_client):
+    respuesta = admin_client.get("/estudiantes/")
 
     assert respuesta.status_code == 200
     assert respuesta.json() == []
 
 
-def test_listar_estudiantes_ordenados_por_id(client):
-    creados = [crear_estudiante(client, nombre=n) for n in ("Zoe", "Ana", "Luis")]
+def test_listar_estudiantes_ordenados_por_id(admin_client):
+    creados = [crear_estudiante(admin_client, nombre=n) for n in ("Zoe", "Ana", "Luis")]
 
-    respuesta = client.get("/estudiantes/")
+    respuesta = admin_client.get("/estudiantes/")
 
     assert respuesta.status_code == 200
     assert respuesta.json() == creados  # mismo orden de creación = orden por id
@@ -69,20 +69,20 @@ def test_listar_estudiantes_ordenados_por_id(client):
     assert ids == sorted(ids)
 
 
-def test_obtener_estudiante_devuelve_200(client):
-    estudiante = crear_estudiante(client)
+def test_obtener_estudiante_devuelve_200(admin_client):
+    estudiante = crear_estudiante(admin_client)
 
-    respuesta = client.get(f"/estudiantes/{estudiante['id']}")
+    respuesta = admin_client.get(f"/estudiantes/{estudiante['id']}")
 
     assert respuesta.status_code == 200
     assert respuesta.json() == estudiante
 
 
-def test_actualizar_estudiante_devuelve_200(client):
-    estudiante = crear_estudiante(client)
+def test_actualizar_estudiante_devuelve_200(admin_client):
+    estudiante = crear_estudiante(admin_client)
     nuevos = ESTUDIANTE | {"semestre": 4, "promedio": "3.85", "asistencia": 95}
 
-    respuesta = client.put(f"/estudiantes/{estudiante['id']}", json=nuevos)
+    respuesta = admin_client.put(f"/estudiantes/{estudiante['id']}", json=nuevos)
 
     assert respuesta.status_code == 200
     assert respuesta.json() == nuevos | {"id": estudiante["id"]}
@@ -91,8 +91,8 @@ def test_actualizar_estudiante_devuelve_200(client):
 # ---------- 404 ----------
 
 @pytest.mark.parametrize(("metodo", "cuerpo"), [("GET", None), ("PUT", ESTUDIANTE), ("DELETE", None)])
-def test_estudiante_inexistente_devuelve_404(client, metodo, cuerpo):
-    respuesta = client.request(metodo, "/estudiantes/999", json=cuerpo)
+def test_estudiante_inexistente_devuelve_404(admin_client, metodo, cuerpo):
+    respuesta = admin_client.request(metodo, "/estudiantes/999", json=cuerpo)
 
     assert respuesta.status_code == 404
     assert respuesta.json() == {"detail": "Estudiante no encontrado"}
@@ -109,33 +109,33 @@ def test_estudiante_inexistente_devuelve_404(client, metodo, cuerpo):
      {"nombre": ""}, {"apellido": "   "}, {"carrera": ""}, {"ciudad": "x" * 101}],
     ids=lambda c: "-".join(f"{k}={str(v)[:8]}" for k, v in c.items()),
 )
-def test_crear_estudiante_invalido_devuelve_422(client, cambios):
-    respuesta = client.post("/estudiantes/", json=ESTUDIANTE | cambios)
+def test_crear_estudiante_invalido_devuelve_422(admin_client, cambios):
+    respuesta = admin_client.post("/estudiantes/", json=ESTUDIANTE | cambios)
 
     assert respuesta.status_code == 422
 
 
-def test_crear_estudiante_sin_campos_devuelve_422(client):
-    respuesta = client.post("/estudiantes/", json={})
+def test_crear_estudiante_sin_campos_devuelve_422(admin_client):
+    respuesta = admin_client.post("/estudiantes/", json={})
 
     assert respuesta.status_code == 422
     assert {e["loc"][-1] for e in respuesta.json()["detail"]} == set(ESTUDIANTE)
 
 
-def test_id_no_numerico_devuelve_422(client):
-    assert client.get("/estudiantes/abc").status_code == 422
+def test_id_no_numerico_devuelve_422(admin_client):
+    assert admin_client.get("/estudiantes/abc").status_code == 422
 
 
 # ---------- 204 ----------
 
-def test_eliminar_estudiante_devuelve_204(client):
-    estudiante = crear_estudiante(client)
+def test_eliminar_estudiante_devuelve_204(admin_client):
+    estudiante = crear_estudiante(admin_client)
 
-    respuesta = client.delete(f"/estudiantes/{estudiante['id']}")
+    respuesta = admin_client.delete(f"/estudiantes/{estudiante['id']}")
 
     assert respuesta.status_code == 204
     assert respuesta.content == b""
-    assert client.get(f"/estudiantes/{estudiante['id']}").status_code == 404
+    assert admin_client.get(f"/estudiantes/{estudiante['id']}").status_code == 404
 
 
 # ---------- CHECK en la base ----------

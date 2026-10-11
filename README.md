@@ -107,6 +107,7 @@ Y rellena los valores:
 | `DB_HOST`     | Servidor de la base de datos        | `localhost`    |
 | `DB_PORT`     | Puerto de MariaDB                   | `3306`         |
 | `DB_NAME`     | Nombre de la base de datos          | `tienda_db`    |
+| `CLAVE_TOKENS` | Clave de las sesiones (32 bytes en base64url). **Obligatoria** | salida de `python -m scripts.generar_clave` |
 
 > ⚠️ **Nunca subas `.env` a Git.** Ya está incluido en `.gitignore`.
 > Comparte solo `.env.example`, que no lleva valores reales.
@@ -204,6 +205,18 @@ endpoints de estadísticas y guarda un PNG por cada uno en `graficas/`
 python -m scripts.graficas                               # API en http://127.0.0.1:8000
 python -m scripts.graficas --url http://127.0.0.1:8001   # otra URL
 ```
+
+## Usuarios y roles
+
+Hay tres roles: `jugador` (lo crea el registro público), `docente` y `admin`.
+El primer admin se crea por consola, contra la base del `.env`:
+
+```bash
+python -m scripts.crear_usuario Profe_Admin --rol admin   # pide la contraseña
+```
+
+Las contraseñas se guardan con **Argon2id**; los refresh tokens, solo como
+SHA-256. Detalles y decisiones en [docs/CONTRATO_AUTH.md](docs/CONTRATO_AUTH.md).
 
 ## Conectar desde Flutter
 
@@ -400,24 +413,40 @@ api-tienda/
 │   ├── models.py        # Modelos de SQLAlchemy (tablas)
 │   ├── schemas.py       # Esquemas de Pydantic (validación y respuesta)
 │   ├── ml.py            # Variables y Pipeline del modelo (compartido script/API)
+│   ├── reloj.py         # Hora UTC en un solo sitio (los tests la adelantan)
+│   ├── seguridad.py     # Argon2id, PASETO v4.local y refresh tokens (sin BD)
+│   ├── sesiones.py      # Familias de refresh tokens en la BD
+│   ├── dependencias.py  # usuario_actual, requiere_rol(...)
+│   ├── errores.py       # Errores con código: {"detail": {"codigo", "mensaje"}}
 │   └── routers/
+│       ├── auth.py        # /auth: registro, login, refresh, sesiones
 │       ├── estudiantes.py # Endpoints CRUD de /estudiantes
 │       ├── estadisticas.py # Estadísticas de estudiantes (GROUP BY)
 │       └── prediccion.py  # Predicción de riesgo académico
 ├── scripts/
 │   ├── seed_estudiantes.py # Genera estudiantes de prueba (Faker)
 │   ├── graficas.py      # PNG de las estadísticas (matplotlib)
-│   └── entrenar_modelo.py # Entrena el modelo de riesgo (scikit-learn)
+│   ├── entrenar_modelo.py # Entrena el modelo de riesgo (scikit-learn)
+│   ├── generar_clave.py # Clave nueva para CLAVE_TOKENS
+│   └── crear_usuario.py # Crea usuarios con rol (el primer admin)
 ├── alembic/
 │   ├── env.py           # Conecta Alembic con la config y los modelos
 │   └── versions/        # Archivos de migración
 ├── alembic.ini          # Configuración de Alembic (sin credenciales)
 ├── tests/
 │   ├── conftest.py      # Base tienda_test, migraciones, rollback por test
+│   ├── ayudas.py        # Utilidades comunes (cabeceras con token, PASSWORD)
 │   ├── test_migraciones.py # Las migraciones coinciden con los modelos
+│   ├── test_modelo_usuarios.py # CHECK y UNIQUE de usuarios y sesiones
+│   ├── test_seguridad.py # Ataques al access token
+│   ├── test_auth.py     # Registro, login, bloqueo y permisos por rol
 │   ├── test_estudiantes.py
 │   ├── test_estadisticas.py
 │   └── test_prediccion.py
+├── docs/
+│   ├── ARQUITECTURA.md  # Estado verificado del backend y deuda técnica
+│   └── CONTRATO_AUTH.md # Contrato de autenticación con la app Flutter
+├── .github/workflows/tests.yml # CI: pytest con MariaDB y MySQL 8.4
 ├── pytest.ini           # Configuración de pytest
 ├── .env.example         # Plantilla de variables de entorno
 ├── render.yaml          # Despliegue en Render (build, start y variables)
@@ -455,6 +484,21 @@ Cómo funcionan (`tests/conftest.py`):
 
 ## Endpoints
 
+### Autenticación
+
+El contrato completo (cuerpos, códigos de error, duración de los tokens y qué
+debe hacer el cliente en cada caso) está en
+[docs/CONTRATO_AUTH.md](docs/CONTRATO_AUTH.md). Resumen:
+
+| Método | Ruta              | Acceso      | Descripción |
+|--------|-------------------|-------------|-------------|
+| `POST` | `/auth/registro`  | público     | Crea una cuenta de jugador y abre sesión |
+| `POST` | `/auth/login`     | público     | Abre una sesión (bloqueo temporal tras 5 fallos) |
+| `GET`  | `/auth/yo`        | con token   | Usuario de la sesión |
+
+Las peticiones protegidas llevan `Authorization: Bearer <access_token>`. En
+Swagger (`/docs`): botón **Authorize** y pegar el `access_token` del login.
+
 ### Raíz
 
 | Método   | Ruta | Descripción                   | Respuesta |
@@ -467,9 +511,12 @@ Cómo funcionan (`tests/conftest.py`):
 |----------|-----------------------|-------------------------------------|-----------|
 | `GET`    | `/estudiantes/`       | Listar estudiantes (ordenados por id) | 200     |
 | `GET`    | `/estudiantes/{id}`   | Obtener un estudiante               | 200 / 404 |
-| `POST`   | `/estudiantes/`       | Crear un estudiante                 | 201 / 422 |
-| `PUT`    | `/estudiantes/{id}`   | Actualizar un estudiante            | 200 / 404 / 422 |
-| `DELETE` | `/estudiantes/{id}`   | Eliminar un estudiante              | 204 / 404 |
+| `POST`   | `/estudiantes/`       | Crear un estudiante (**admin**)     | 201 / 401 / 403 / 422 |
+| `PUT`    | `/estudiantes/{id}`   | Actualizar un estudiante (**admin**) | 200 / 401 / 403 / 404 / 422 |
+| `DELETE` | `/estudiantes/{id}`   | Eliminar un estudiante (**admin**)  | 204 / 401 / 403 / 404 |
+
+Leer es público; crear, modificar y borrar exige un token de un usuario con
+rol `admin` (sin token: 401; con otro rol: 403).
 
 Rangos válidos (los comprueba la API con 422 y también la base con `CHECK`):
 edad 16-35, semestre 1-10, promedio 0.00-5.00, horas_estudio 0-40 (por

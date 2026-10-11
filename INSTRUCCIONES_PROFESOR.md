@@ -123,8 +123,16 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 Con el venv activado el prompt empieza por **`(venv)`**.
 
-En `.env` basta con que `DB_PASSWORD` coincida con la del `CREATE USER`
-(si se usó la del ejemplo, no hay que cambiar nada):
+En `.env` hay que revisar dos cosas:
+
+1. `DB_PASSWORD` debe coincidir con la del `CREATE USER` (si se usó la del
+   ejemplo, no hay que cambiarla).
+2. `CLAVE_TOKENS` (la clave de las sesiones de usuario) debe tener una clave
+   propia. Se genera con este comando y se pega en lugar del texto de ejemplo:
+
+   ```bash
+   python -m scripts.generar_clave
+   ```
 
 ```ini
 DB_USER=tienda_user
@@ -132,7 +140,11 @@ DB_PASSWORD=tienda_pass_123
 DB_HOST=localhost
 DB_PORT=3306
 DB_NAME=tienda_db
+CLAVE_TOKENS=(la salida de generar_clave)
 ```
+
+Si falta o es incorrecta, la API no arranca y dice
+`CLAVE_TOKENS debe tener 32 bytes (python -m scripts.generar_clave)`.
 
 ### 4. Preparar los datos
 
@@ -242,7 +254,8 @@ source venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements-dev.txt
 cp .env.example .env
-nano .env        # DB_PASSWORD debe coincidir con la del CREATE USER
+python -m scripts.generar_clave   # copia la salida...
+nano .env        # ...en CLAVE_TOKENS; DB_PASSWORD debe coincidir con la del CREATE USER
 ```
 
 ### 4. Preparar los datos

@@ -5,18 +5,32 @@
   tests y se elimina al terminar.
 - Cada test corre dentro de una transacción que se deshace al final, así que
   todos empiezan con la base vacía.
+- Clave de tokens fija y Argon2 barato (los valores reales tardan ~100 ms por
+  hash y harían lentos los tests). Se fijan antes de importar la app, y las
+  variables de entorno tienen prioridad sobre el .env.
 """
 
-import pytest
-from alembic import command
-from alembic.config import Config
-from fastapi.testclient import TestClient
-from sqlalchemy.engine import Connection, make_url
-from sqlalchemy.orm import Session
+import os
+from datetime import timedelta
 
-from app.config import settings
-from app.database import crear_engine, get_db
-from app.main import app
+os.environ["CLAVE_TOKENS"] = "dGVzdHMtdGVzdHMtdGVzdHMtdGVzdHMtdGVzdHMtMzI"  # 32 bytes, solo tests
+os.environ["ARGON2_TIEMPO"] = "1"
+os.environ["ARGON2_MEMORIA_KIB"] = "64"
+
+import pytest  # noqa: E402
+from alembic import command  # noqa: E402
+from alembic.config import Config  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy.engine import Connection, make_url  # noqa: E402
+from sqlalchemy.orm import Session  # noqa: E402
+
+from app import reloj as reloj_app  # noqa: E402
+from app import seguridad  # noqa: E402
+from app.config import settings  # noqa: E402
+from app.database import crear_engine, get_db  # noqa: E402
+from app.main import app  # noqa: E402
+from app.models import Usuario  # noqa: E402
+from tests.ayudas import PASSWORD, cabeceras  # noqa: E402
 
 # Misma URL que la app (mismas credenciales del .env), pero otra base.
 TEST_DATABASE_URL = make_url(settings.database_url).set(database="tienda_test")
@@ -78,3 +92,44 @@ def client(db_session):
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+
+
+
+@pytest.fixture
+def crear_usuario(db_session):
+    """Crea usuarios directamente en la base: crear_usuario("Ana", rol="admin")."""
+
+    def crear(alias: str = "jugador_1", rol: str = "jugador", password: str = PASSWORD, **campos) -> Usuario:
+        usuario = Usuario(alias=alias, rol=rol, hash_password=seguridad.hashear_password(password), **campos)
+        db_session.add(usuario)
+        db_session.flush()
+        return usuario
+
+    return crear
+
+
+@pytest.fixture
+def admin_client(client, crear_usuario):
+    """Cliente autenticado como admin (para crear y modificar estudiantes)."""
+    admin = crear_usuario("admin_tests", rol="admin")
+    return TestClient(app, headers=cabeceras(admin))
+
+
+class RelojFalso:
+    """Sustituye a app.reloj.ahora: el tiempo solo avanza cuando el test lo dice."""
+
+    def __init__(self, inicio):
+        self.momento = inicio
+
+    def __call__(self):
+        return self.momento
+
+    def avanzar(self, **duracion) -> None:
+        self.momento += timedelta(**duracion)
+
+
+@pytest.fixture
+def reloj(monkeypatch) -> RelojFalso:
+    falso = RelojFalso(reloj_app.ahora())
+    monkeypatch.setattr(reloj_app, "ahora", falso)
+    return falso

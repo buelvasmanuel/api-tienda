@@ -4,6 +4,10 @@ from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.database import get_db
+from app.dependencias import requiere_rol
+
+# Leer es público; crear, modificar y borrar, solo un admin.
+solo_admin = [Depends(requiere_rol("admin"))]
 
 router = APIRouter(prefix="/estudiantes", tags=["Estudiantes"])
 
@@ -25,7 +29,8 @@ def obtener(estudiante_id: int, db: Session = Depends(get_db)):
     return _buscar(db, estudiante_id)
 
 
-@router.post("/", response_model=schemas.EstudianteOut, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=schemas.EstudianteOut, status_code=status.HTTP_201_CREATED,
+             dependencies=solo_admin)
 def crear(datos: schemas.EstudianteCreate, db: Session = Depends(get_db)):
     estudiante = models.Estudiante(**datos.model_dump())
     db.add(estudiante)
@@ -34,7 +39,7 @@ def crear(datos: schemas.EstudianteCreate, db: Session = Depends(get_db)):
     return estudiante
 
 
-@router.put("/{estudiante_id}", response_model=schemas.EstudianteOut)
+@router.put("/{estudiante_id}", response_model=schemas.EstudianteOut, dependencies=solo_admin)
 def actualizar(estudiante_id: int, datos: schemas.EstudianteCreate, db: Session = Depends(get_db)):
     estudiante = _buscar(db, estudiante_id)
     for campo, valor in datos.model_dump().items():
@@ -44,7 +49,7 @@ def actualizar(estudiante_id: int, datos: schemas.EstudianteCreate, db: Session 
     return estudiante
 
 
-@router.delete("/{estudiante_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{estudiante_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=solo_admin)
 def eliminar(estudiante_id: int, db: Session = Depends(get_db)):
     estudiante = _buscar(db, estudiante_id)
     db.delete(estudiante)
