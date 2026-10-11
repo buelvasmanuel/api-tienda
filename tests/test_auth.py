@@ -304,3 +304,35 @@ def test_leer_sigue_siendo_publico(client, admin_client):
 
     assert client.get("/estudiantes/").json() == [creado]
     assert client.get(f"/estudiantes/{creado['id']}").status_code == 200
+
+
+# ---------- Los endpoints públicos ignoran Authorization (contrato §4.10) ----------
+
+@pytest.mark.parametrize(
+    ("metodo", "ruta", "cuerpo"),
+    [("GET", "/", None), ("GET", "/estudiantes/", None),
+     ("GET", "/estudiantes/estadisticas/por-carrera", None),
+     ("POST", "/auth/login", {"alias": "jugador_1", "password": PASSWORD}),
+     ("POST", "/auth/refresh", {"refresh_token": "x"})],
+    ids=["raiz", "estudiantes", "estadisticas", "login", "refresh"],
+)
+@pytest.mark.parametrize("cabecera", ["Bearer token-basura", "Bearer v4.local.caducado", "Basic abc"])
+def test_publicos_ignoran_un_token_invalido(client, crear_usuario, metodo, ruta, cuerpo, cabecera):
+    crear_usuario("jugador_1")
+
+    con = client.request(metodo, ruta, json=cuerpo, headers={"Authorization": cabecera})
+    sin = client.request(metodo, ruta, json=cuerpo)
+
+    # Misma respuesta con y sin la cabecera. (/auth/refresh da 401, pero por el
+    # refresh del cuerpo, no por la cabecera.)
+    assert con.status_code == sin.status_code
+    if con.status_code == 401:
+        assert codigo(con) == codigo(sin) == "refresh_invalido"
+
+
+def test_publicos_ignoran_un_token_caducado(client, crear_usuario, reloj):
+    usuario = crear_usuario()
+    viejo = cabeceras(usuario)
+    reloj.avanzar(hours=1)
+
+    assert client.get("/estudiantes/", headers=viejo).status_code == 200

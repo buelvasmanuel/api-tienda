@@ -217,6 +217,11 @@ El primer admin se crea por consola, contra la base del `.env`:
 python -m scripts.crear_usuario Profe_Admin --rol admin   # pide la contraseña
 ```
 
+Para una clase, el docente crea las cuentas de los alumnos de una vez con
+`POST /usuarios/lote` (hasta 40 alias; la API genera las contraseñas y solo
+las muestra en esa respuesta). Los límites por IP están pensados para que una
+clase entera, que comparte la IP del colegio, pueda iniciar sesión a la vez.
+
 Las contraseñas se guardan con **Argon2id**; los refresh tokens, solo como
 SHA-256. Detalles y decisiones en [docs/CONTRATO_AUTH.md](docs/CONTRATO_AUTH.md).
 
@@ -502,7 +507,7 @@ debe hacer el cliente en cada caso) está en
 | Método | Ruta              | Acceso      | Descripción |
 |--------|-------------------|-------------|-------------|
 | `POST` | `/auth/registro`  | público     | Crea una cuenta de jugador y abre sesión |
-| `POST` | `/auth/login`     | público     | Abre una sesión (bloqueo temporal tras 5 fallos) |
+| `POST` | `/auth/login`     | público     | Abre una sesión (bloqueo temporal de la cuenta tras 5 fallos) |
 | `POST` | `/auth/refresh`   | público     | Cambia el refresh por uno nuevo (rotación) y da un access nuevo |
 | `POST` | `/auth/logout`    | público     | Cierra la sesión de ese refresh |
 | `POST` | `/auth/logout-todo` | con token | Cierra todas las sesiones del usuario |
@@ -512,6 +517,7 @@ debe hacer el cliente en cada caso) está en
 | `GET`  | `/usuarios`       | docente, admin | Lista de usuarios |
 | `PATCH`| `/usuarios/{id}`  | admin       | Cambia rol o activa/desactiva |
 | `PUT`  | `/usuarios/{id}/password` | admin | Restablece la contraseña (no hay email) |
+| `POST` | `/usuarios/lote`  | docente, admin | Crea hasta 40 cuentas de jugador con contraseñas generadas |
 
 Las peticiones protegidas llevan `Authorization: Bearer <access_token>`. En
 Swagger (`/docs`): botón **Authorize** y pegar el `access_token` del login.

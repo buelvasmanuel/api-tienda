@@ -149,3 +149,29 @@ class UsuarioCambios(Entrada):
 
 class PasswordAdmin(Entrada):
     password_nueva: Password
+
+
+class LoteEntrada(Entrada):
+    aliases: list[Alias] = Field(min_length=1, max_length=40)
+
+    @model_validator(mode="after")
+    def _sin_repetidos(self) -> Self:
+        vistos: set[str] = set()
+        repetidos = []
+        for alias in self.aliases:
+            if alias.casefold() in vistos:
+                repetidos.append(alias)
+            vistos.add(alias.casefold())
+        if repetidos:
+            raise ValueError(f"Alias repetidos en la lista: {', '.join(repetidos)}")
+        return self
+
+
+class CuentaCreada(BaseModel):
+    id: int
+    alias: str
+    password: str = Field(description="Contraseña inicial. Solo se muestra en esta respuesta")
+
+
+class LoteOut(BaseModel):
+    cuentas: list[CuentaCreada]

@@ -60,12 +60,12 @@ def test_la_rotacion_mantiene_la_familia(client, sesion, db_session):
     assert len(familias) == 2 and len(set(familias)) == 1
 
 
-# ---------- Reintento dentro de la ventana de 30 s (refresh idempotente) ----------
+# ---------- Reintento dentro de la ventana de 120 s (refresh idempotente) ----------
 
 def test_repetir_el_refresh_devuelve_el_mismo_sucesor(client, sesion, reloj):
     primera = refrescar(client, sesion["refresh_token"]).json()
 
-    reloj.avanzar(seconds=30)
+    reloj.avanzar(seconds=120)
     segunda = refrescar(client, sesion["refresh_token"])
 
     assert segunda.status_code == 200
@@ -77,7 +77,7 @@ def test_repetir_el_refresh_devuelve_el_mismo_sucesor(client, sesion, reloj):
 def test_reintento_tras_la_ventana_es_reuso(client, sesion, reloj, db_session):
     primera = refrescar(client, sesion["refresh_token"]).json()
 
-    reloj.avanzar(seconds=31)
+    reloj.avanzar(seconds=121)
     reuso = refrescar(client, sesion["refresh_token"])
 
     assert reuso.status_code == 401
@@ -92,7 +92,7 @@ def test_reintento_cuando_el_sucesor_ya_se_uso_es_reuso(client, sesion):
     b = refrescar(client, sesion["refresh_token"]).json()["refresh_token"]
     c = refrescar(client, b).json()["refresh_token"]
 
-    reuso = refrescar(client, sesion["refresh_token"])  # A otra vez, aún dentro de 30 s
+    reuso = refrescar(client, sesion["refresh_token"])  # A otra vez, aún dentro de la ventana
 
     assert codigo(reuso) == "sesion_revocada"
     assert codigo(refrescar(client, c)) == "sesion_revocada"

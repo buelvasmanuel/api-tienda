@@ -76,8 +76,9 @@ def rotar(db: Session, refresh: str, user_agent: str | None) -> tuple[Usuario, E
     """Cambia un refresh por su sucesor (docs/CONTRATO_AUTH.md §5).
 
     - Sin usar: se marca como usado y se emite el sucesor.
-    - Ya usado hace <= 30 s y con el sucesor sin usar: reintento o petición
-      concurrente; se devuelve el mismo sucesor (el sucesor es determinista).
+    - Ya usado hace <= REFRESH_GRACIA (120 s) y con el sucesor sin usar:
+      reintento o petición concurrente; se devuelve el mismo sucesor (el
+      sucesor es determinista).
     - Ya usado en otro caso: reuso, señal de robo. Se revoca la familia entera.
 
     Lanza RefreshRechazado; quien llama debe hacer commit también en ese caso

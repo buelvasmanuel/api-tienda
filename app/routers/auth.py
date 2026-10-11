@@ -107,6 +107,7 @@ def registro(datos: schemas.RegistroEntrada, request: Request, db: Session = Dep
 def login(datos: schemas.LoginEntrada, request: Request, db: Session = Depends(get_db)):
     """Abre una sesión nueva. Mismo error para alias inexistente y contraseña mala."""
     credenciales_invalidas = no_autorizado("credenciales_invalidas", "Alias o contraseña incorrectos")
+    limites.comprobar_fallos_login(request)  # antes de gastar CPU en un hash
     # FOR UPDATE: dos intentos simultáneos contra la misma cuenta se ponen en
     # fila, así el contador de fallos no se puede esquivar en paralelo.
     usuario = db.scalar(
@@ -114,6 +115,7 @@ def login(datos: schemas.LoginEntrada, request: Request, db: Session = Depends(g
     )
     if usuario is None:
         seguridad.gastar_tiempo_de_verificacion(datos.password)
+        limites.registrar_fallo_login(request)
         raise credenciales_invalidas
 
     comprobar_bloqueo(usuario)
@@ -121,6 +123,7 @@ def login(datos: schemas.LoginEntrada, request: Request, db: Session = Depends(g
     if not seguridad.verificar_password(usuario.hash_password, datos.password):
         registrar_fallo(usuario)
         db.commit()
+        limites.registrar_fallo_login(request)
         raise credenciales_invalidas
 
     registrar_acierto(usuario)
@@ -145,7 +148,7 @@ def yo(usuario: Usuario = Depends(usuario_actual)):
 def refresh(datos: schemas.RefreshEntrada, request: Request, db: Session = Depends(get_db)):
     """Cambia el refresh por uno nuevo y entrega un access nuevo.
 
-    Repetir el mismo refresh dentro de 30 s (sin haber usado aún el nuevo)
+    Repetir el mismo refresh dentro de 120 s (sin haber usado aún el nuevo)
     devuelve el mismo refresh nuevo: reintentos y peticiones simultáneas son
     seguros. Fuera de esa ventana, reusar un refresh cierra la sesión entera.
     """

@@ -1,9 +1,12 @@
-"""Gestión de usuarios: el docente ve a los jugadores; el admin cambia roles,
-desactiva cuentas y restablece contraseñas (no hay email para recuperarlas).
-Contrato: docs/CONTRATO_AUTH.md §4.9."""
+"""Gestión de usuarios: el docente ve a los jugadores y crea cuentas en lote;
+el admin cambia roles, desactiva cuentas y restablece contraseñas (no hay
+email para recuperarlas). Contrato: docs/CONTRATO_AUTH.md §4.9."""
 
-from fastapi import APIRouter, Depends, status
+import logging
+
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import schemas, seguridad, sesiones
@@ -14,6 +17,7 @@ from app.models import Usuario
 from app.routers.auth import registrar_acierto
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
+log = logging.getLogger("app.auth")
 
 
 def _objetivo(usuario_id: int, admin: Usuario, db: Session) -> Usuario:
@@ -63,3 +67,41 @@ def restablecer_password(usuario_id: int, datos: schemas.PasswordAdmin,
     registrar_acierto(usuario)  # quita un posible bloqueo por fuerza bruta
     sesiones.cerrar_todas(db, usuario, "password")
     db.commit()
+
+
+@router.post("/lote", response_model=schemas.LoteOut, status_code=status.HTTP_201_CREATED)
+def crear_lote(datos: schemas.LoteEntrada, respuesta: Response,
+               docente: Usuario = Depends(requiere_rol("docente", "admin")), db: Session = Depends(get_db)):
+    """Crea cuentas de jugador con contraseñas generadas (todas o ninguna).
+
+    Pensado para el aula: el docente reparte las contraseñas y los alumnos no
+    tienen que registrarse (ni chocar con el límite de registros por IP).
+    Cada alumno puede cambiarla después con PUT /auth/password.
+    """
+    def alias_en_uso(aliases: list[str]):
+        return error(status.HTTP_409_CONFLICT, "alias_en_uso",
+                     "Algunos alias ya están en uso; no se creó ninguna cuenta", aliases=sorted(aliases))
+
+    # La collation compara sin distinguir mayúsculas, como el UNIQUE.
+    existentes = db.scalars(select(Usuario.alias).where(Usuario.alias.in_(datos.aliases))).all()
+    if existentes:
+        raise alias_en_uso(list(existentes))
+
+    creadas = []
+    for alias in datos.aliases:
+        password = seguridad.generar_password()
+        usuario = Usuario(alias=alias, hash_password=seguridad.hashear_password(password))
+        db.add(usuario)
+        creadas.append((usuario, password))
+    try:
+        db.flush()
+    except IntegrityError:  # otra petición creó alguno de esos alias a la vez
+        db.rollback()
+        raise alias_en_uso([])
+    db.commit()
+
+    respuesta.headers["Cache-Control"] = "no-store"  # lleva contraseñas
+    log.info("lote de %s cuentas creado por usuario %s", len(creadas), docente.id)
+    return schemas.LoteOut(cuentas=[
+        schemas.CuentaCreada(id=u.id, alias=u.alias, password=p) for u, p in creadas
+    ])

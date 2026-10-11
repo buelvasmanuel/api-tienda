@@ -62,7 +62,7 @@ api-tienda/
 │   ├── entrenar_modelo.py   # CV estratificada 5 particiones, elige por F2, --sin-graficas
 │   ├── generar_clave.py     # valor para CLAVE_TOKENS
 │   └── crear_usuario.py     # alias + --rol; única forma de crear el primer admin
-├── tests/                 # 263 tests (§8)
+├── tests/                 # 291 tests (§8)
 ├── docs/                  # ARQUITECTURA.md (este archivo), CONTRATO_AUTH.md
 ├── .github/workflows/tests.yml  # CI: pytest con mariadb:lts y mysql:8.4
 ├── alembic.ini, pytest.ini, render.yaml, .python-version (3.14.7)
@@ -183,9 +183,9 @@ Detalle completo (cuerpos, códigos, qué hace el cliente) en CONTRATO_AUTH.md �
 
 | Método | Ruta | Acceso | Respuesta |
 |---|---|---|---|
-| POST | `/auth/registro` | público, 5/h por IP | 201 `TokensOut`; 409, 422, 429 |
-| POST | `/auth/login` | público, 10/min por IP + bloqueo por cuenta | `TokensOut`; 401, 403, 429 |
-| POST | `/auth/refresh` | público, 30/min por IP | `TokensOut`; 401 `refresh_invalido`/`sesion_revocada`, 403, 429 |
+| POST | `/auth/registro` | público, 60/h por IP | 201 `TokensOut`; 409, 422, 429 |
+| POST | `/auth/login` | público; por IP 30 fallos/min y 120/min en total; bloqueo por cuenta | `TokensOut`; 401, 403, 429 |
+| POST | `/auth/refresh` | público, 300/min por IP | `TokensOut`; 401 `refresh_invalido`/`sesion_revocada`, 403, 429 |
 | POST | `/auth/logout` | público | 204 siempre |
 | POST | `/auth/logout-todo` | con token | 204 |
 | GET | `/auth/yo` | con token | `UsuarioOut` |
@@ -194,6 +194,7 @@ Detalle completo (cuerpos, códigos, qué hace el cliente) en CONTRATO_AUTH.md �
 | GET | `/usuarios` | docente, admin | `list[UsuarioAdminOut]` |
 | PATCH | `/usuarios/{id}` | admin (no sobre sí mismo) | `UsuarioAdminOut`; 404, 409 |
 | PUT | `/usuarios/{id}/password` | admin (no sobre sí mismo) | 204; 404, 409, 422 |
+| POST | `/usuarios/lote` | docente, admin | 201 `LoteOut` (contraseñas generadas, todas o ninguna); 409 con `aliases`, 422 |
 
 Todas las respuestas de `/auth` llevan `Cache-Control: no-store`.
 
@@ -258,9 +259,9 @@ calculadas con `GROUP BY`.
 | Contraseñas | Argon2id `t=2, m=19 MiB, p=1` (OWASP). Semáforo de 2 hashes simultáneos (`ARGON2_CONCURRENCIA`). ~50 ms en un portátil; en Render (0,1 CPU) del orden de 0,5 s. Rehash al hacer login si cambian los parámetros |
 | Access | PASETO `v4.local`, 15 min. Claims `iss`, `aud`, `sub`, `sid`, `iat`, `exp`. Se descifra sin `deserializer` para que pyseto no valide con la hora real: la caducidad se comprueba con `reloj.ahora()` |
 | Claves | `CLAVE_TOKENS` (32 bytes) → HKDF-SHA256 → una subclave para PASETO y otra para los sucesores de refresh |
-| Refresh | 256 bits aleatorios; sucesor = `HMAC-SHA256(subclave, refresh)`; en BD solo SHA-256. Rotación con `SELECT … FOR UPDATE`. Ventana idempotente de 30 s (CONTRATO_AUTH.md §5) |
+| Refresh | 256 bits aleatorios; sucesor = `HMAC-SHA256(subclave, refresh)`; en BD solo SHA-256. Rotación con `SELECT … FOR UPDATE`. Ventana idempotente de 120 s (CONTRATO_AUTH.md §5) |
 | Cada petición | Se carga el usuario de la BD: el rol se lee de ahí; cuenta desactivada → 403; `iat < sesiones_validas_desde` → 401 |
-| Fuerza bruta | Por cuenta (BD): 5 fallos → 30 s, duplicando hasta 15 min; también cuenta en `PUT /auth/password`. Por IP (memoria, slowapi): ver §4.2 |
+| Fuerza bruta | Por cuenta (BD): 5 fallos → 30 s, duplicando hasta 15 min; también cuenta en `PUT /auth/password`. Por IP (memoria): límites altos porque un aula comparte IP; en el login solo cuentan los fallos (contador propio con `limits`, comprobado antes de calcular ningún hash) y los techos totales los pone slowapi (§4.2) |
 | Enumeración | Mismo 401 para alias inexistente y contraseña mala; con alias inexistente se verifica un hash falso. (El registro revela si un alias existe con 409: es inherente, y por eso tiene el límite más estricto) |
 | Asignación masiva | `extra="forbid"` en los cuerpos de auth |
 | Respuestas | HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`; `Cache-Control: no-store` en `/auth`; 422 sin `input` |
@@ -280,10 +281,11 @@ calculadas con `GROUP BY`.
 | Dos refresh simultáneos (hilos con conexiones reales) | `test_refresh.py::test_dos_refresh_simultaneos_reciben_el_mismo_sucesor` |
 | Fuerza bruta (bloqueo, duplicación, reinicio del contador) | `test_auth.py`, `test_refresh.py` (cambio de contraseña) |
 | Enumeración de alias | `test_auth.py` |
-| Escalada: jugador/docente escribe estudiantes, `"rol": "admin"` en el registro, rol cambiado en la BD | `test_auth.py`, `test_usuarios.py` |
+| Escalada: jugador/docente escribe estudiantes, `"rol": "admin"` en el registro, rol cambiado en la BD, jugador crea cuentas | `test_auth.py`, `test_usuarios.py` |
 | Sesiones tras logout, logout-todo, cambio o restablecimiento de contraseña, desactivación | `test_refresh.py`, `test_usuarios.py` |
 | Secretos en la BD y en respuestas (hash, refresh, eco en 422) | `test_auth.py`, `test_refresh.py`, `test_usuarios.py` |
-| Límite por IP y falsificación de `X-Forwarded-For` | `test_limites.py` |
+| Límite por IP (aula de 40 alumnos, fallos por IP sin calcular hash) y falsificación de `X-Forwarded-For` | `test_limites.py` |
+| Token inválido en endpoints públicos (se ignora) | `test_auth.py` |
 
 ---
 
@@ -342,9 +344,9 @@ httpx2 2.13.1, matplotlib 3.11.2, pytest 9.1.1.
 | `IP_CLIENTE` | `conexion` | `conexion`, `x-forwarded-for:N` (N desde la derecha) o nombre de cabecera; `x-forwarded-for` a secas se rechaza |
 | `ARGON2_TIEMPO`, `ARGON2_MEMORIA_KIB`, `ARGON2_PARALELISMO`, `ARGON2_CONCURRENCIA` | 2, 19456, 1, 2 | Coste de Argon2id |
 
-**Tests** (263; `pytest -q` en ~6 s): auth 51, estudiantes 42, seguridad 33,
-refresh 33, límites 28, prediccion 22, estadísticas 20, usuarios 19, modelo de
-usuarios 14, migraciones 1.
+**Tests** (291; `pytest -q` en ~9 s; también pasan contra MySQL 8.4): auth 67,
+estudiantes 42, seguridad 33, refresh 33, límites 31, usuarios 28, predicción
+22, estadísticas 20, modelo de usuarios 14, migraciones 1.
 
 - `conftest.py` fija antes de importar la app una `CLAVE_TOKENS` de pruebas,
   Argon2 barato (`t=1, m=64 KiB`), `CORS_ORIGINS` e `IP_CLIENTE`.
@@ -389,13 +391,13 @@ lee la IP según `IP_CLIENTE`. Hasta verificar la cadena real de proxies queda
 en `conexion` (funciona, pero se puede esquivar falsificando la cabecera; el
 bloqueo por cuenta no depende de esto). Para verificarlo:
 
-1. Desde tu máquina, 11 logins seguidos **con un alias que no exista** (así
+1. Desde tu máquina, 31 logins seguidos **con un alias que no exista** (así
    no se bloquea ninguna cuenta) y `-H "X-Forwarded-For: 1.2.3.4"`:
-   `for i in $(seq 11); do curl -s -o /dev/null -w "%{http_code} " -X POST
+   `for i in $(seq 31); do curl -s -o /dev/null -w "%{http_code} " -X POST
    https://api-tienda-wjac.onrender.com/auth/login -H "Content-Type: application/json"
    -H "X-Forwarded-For: 1.2.3.4" -d '{"alias":"no_existe_xff","password":"x"}'; done`
    (el último debe dar `429`).
-2. En los logs de Render, la línea `límite por IP superado ... x-forwarded-for='…'`
+2. En los logs de Render, la línea `demasiados logins fallidos ip=… x-forwarded-for='…'`
    muestra la cabecera completa. Tu IP pública real tendrá una posición fija
    contando desde la derecha.
 3. Poner `IP_CLIENTE=x-forwarded-for:N` con esa posición (o `cf-connecting-ip`

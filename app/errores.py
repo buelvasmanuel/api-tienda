@@ -8,8 +8,10 @@ from fastapi import HTTPException, status
 from fastapi.exceptions import RequestValidationError
 
 
-def error(estado: int, codigo: str, mensaje: str, cabeceras: dict[str, str] | None = None) -> HTTPException:
-    return HTTPException(estado, detail={"codigo": codigo, "mensaje": mensaje}, headers=cabeceras)
+def error(estado: int, codigo: str, mensaje: str, cabeceras: dict[str, str] | None = None,
+          **extra) -> HTTPException:
+    """`extra` añade campos al detalle, p. ej. aliases=[...] en un 409 del lote."""
+    return HTTPException(estado, detail={"codigo": codigo, "mensaje": mensaje} | extra, headers=cabeceras)
 
 
 def no_autorizado(codigo: str, mensaje: str) -> HTTPException:

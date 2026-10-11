@@ -1,9 +1,11 @@
 """Gestión de usuarios por docentes y admins (docs/CONTRATO_AUTH.md §4.9)."""
 
+import re
+
 import pytest
 from sqlalchemy import select
 
-from app.models import SesionRefresh
+from app.models import SesionRefresh, Usuario
 from tests.ayudas import PASSWORD, cabeceras, codigo
 
 
@@ -153,3 +155,58 @@ def test_solo_un_admin_restablece(client, crear_usuario, jugador):
                            json={"password_nueva": "nueva-clave-789"}, headers=cabeceras(docente))
 
     assert codigo(respuesta) == "permiso_denegado"
+
+
+# ---------- POST /usuarios/lote ----------
+
+def crear_lote(client, quien, aliases):
+    return client.post("/usuarios/lote", json={"aliases": aliases}, headers=cabeceras(quien))
+
+
+@pytest.mark.parametrize("rol", ["docente", "admin"])
+def test_lote_crea_jugadores_con_password_generada(client, crear_usuario, rol):
+    quien = crear_usuario("profe", rol=rol)
+
+    respuesta = crear_lote(client, quien, ["Alumno_01", "Alumno_02", "Alumno_03"])
+
+    assert respuesta.status_code == 201
+    assert respuesta.headers["Cache-Control"] == "no-store"
+    cuentas = respuesta.json()["cuentas"]
+    assert [c["alias"] for c in cuentas] == ["Alumno_01", "Alumno_02", "Alumno_03"]
+    assert len({c["password"] for c in cuentas}) == 3
+    for cuenta in cuentas:
+        assert re.fullmatch(r"[a-hj-km-np-z2-9]{4}-[a-hj-km-np-z2-9]{4}-[a-hj-km-np-z2-9]{4}", cuenta["password"])
+        login_ok = login(client, cuenta["alias"], cuenta["password"])
+        assert login_ok.status_code == 200
+        assert login_ok.json()["usuario"]["rol"] == "jugador"
+
+
+def test_lote_todo_o_nada_si_un_alias_existe(client, crear_usuario, admin, db_session):
+    crear_usuario("Alumno_02")
+
+    respuesta = crear_lote(client, admin, ["Alumno_01", "alumno_02", "Alumno_03"])
+
+    assert respuesta.status_code == 409
+    assert respuesta.json()["detail"]["codigo"] == "alias_en_uso"
+    assert respuesta.json()["detail"]["aliases"] == ["Alumno_02"]
+    assert db_session.scalar(select(Usuario).where(Usuario.alias == "Alumno_01")) is None
+
+
+@pytest.mark.parametrize(
+    "aliases",
+    [[], ["ok_1", "OK_1"], ["con espacio"], [f"alumno_{i}" for i in range(41)]],
+    ids=["vacia", "repetidos", "alias-invalido", "mas-de-40"],
+)
+def test_lote_invalido(client, admin, aliases):
+    assert crear_lote(client, admin, aliases).status_code == 422
+
+
+def test_un_jugador_no_crea_cuentas(client, jugador):
+    assert codigo(crear_lote(client, jugador, ["Alumno_01"])) == "permiso_denegado"
+
+
+def test_lote_de_40_cuentas(client, admin):
+    respuesta = crear_lote(client, admin, [f"alumno_{i:02d}" for i in range(40)])
+
+    assert respuesta.status_code == 201
+    assert len(respuesta.json()["cuentas"]) == 40

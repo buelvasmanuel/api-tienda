@@ -34,7 +34,9 @@ from app.config import settings
 ACCESS_DURACION = timedelta(minutes=15)
 REFRESH_DURACION = timedelta(days=14)
 FAMILIA_DURACION = timedelta(days=30)  # máximo absoluto de una sesión
-REFRESH_GRACIA = timedelta(seconds=30)  # ventana del refresh idempotente
+# Ventana del refresh idempotente: más que el timeout del cliente (60 s, por el
+# arranque en frío de Render) más un reintento. Ver docs/CONTRATO_AUTH.md §5.
+REFRESH_GRACIA = timedelta(seconds=120)
 
 EMISOR = "api-tienda"
 AUDIENCIA = "app-estudiantes"
@@ -67,6 +69,17 @@ def verificar_password(hash_guardado: str, password: str) -> bool:
             return _hasher.verify(hash_guardado, password)
         except (VerificationError, InvalidHashError):
             return False
+
+
+# Sin letras ni números que se confundan al dictarlos o copiarlos (i, l, o, 0, 1).
+_ALFABETO_PASSWORD = "abcdefghjkmnpqrstuvwxyz23456789"
+
+
+def generar_password() -> str:
+    """Contraseña inicial para cuentas creadas por un docente: 12 caracteres
+    aleatorios en 3 grupos ("k7mq-x3hp-9tfa"), unos 59 bits de entropía."""
+    caracteres = [secrets.choice(_ALFABETO_PASSWORD) for _ in range(12)]
+    return "-".join("".join(caracteres[i:i + 4]) for i in range(0, 12, 4))
 
 
 def gastar_tiempo_de_verificacion(password: str) -> None:
