@@ -143,12 +143,12 @@ def sin_limite_por_ip():
     """El límite por IP (5 registros/hora...) rompería los tests que registran
     o inician sesión muchas veces: se apaga, salvo en tests/test_limites.py,
     que lo enciende con la fixture `limite_por_ip`."""
-    limites.limiter.enabled = False
-    limites.limiter.reset()
+    limites.limitador.activo = False
+    limites.limitador.reiniciar()
     yield
-    limites.limiter.enabled = True
+    limites.limitador.activo = True
 
 
 @pytest.fixture
 def limite_por_ip():
-    limites.limiter.enabled = True
+    limites.limitador.activo = True

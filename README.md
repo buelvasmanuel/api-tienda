@@ -454,7 +454,7 @@ api-tienda/
 │   ├── sesiones.py      # Familias de refresh tokens en la BD
 │   ├── dependencias.py  # usuario_actual, requiere_rol(...)
 │   ├── errores.py       # Errores con código: {"detail": {"codigo", "mensaje"}}
-│   ├── limites.py       # Límite de peticiones por IP (slowapi) e IP del cliente
+│   ├── limites.py       # Límite de peticiones por IP (librería limits) e IP del cliente
 │   └── routers/
 │       ├── auth.py        # /auth: registro, login, refresh, sesiones
 │       ├── usuarios.py    # /usuarios: gestión por docentes y admins

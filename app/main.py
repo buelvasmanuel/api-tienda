@@ -5,9 +5,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi.errors import RateLimitExceeded
 
-from app import limites
 from app.config import settings
 from app.routers import auth, estadisticas, estudiantes, juego, laboratorio, prediccion, usuarios
 
@@ -20,8 +18,6 @@ logging.getLogger("app").setLevel(logging.INFO)
 
 # Las tablas se crean y modifican con migraciones de Alembic (alembic upgrade head).
 app = FastAPI(title="API Tienda")
-app.state.limiter = limites.limiter
-app.add_exception_handler(RateLimitExceeded, limites.limite_superado)
 
 
 @app.exception_handler(RequestValidationError)

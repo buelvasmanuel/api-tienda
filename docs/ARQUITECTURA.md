@@ -55,7 +55,7 @@ api-tienda/
 │   ├── sesiones.py        # Familias de refresh en la BD: abrir, rotar, revocar, listar
 │   ├── dependencias.py    # sesion_actual, usuario_actual, requiere_rol(...)
 │   ├── errores.py         # {"detail": {"codigo", "mensaje"}}, 401 con WWW-Authenticate, 429
-│   ├── limites.py         # slowapi: límite por IP e ip_cliente()
+│   ├── limites.py         # Límite por IP (librería limits) e ip_cliente()
 │   └── routers/
 │       ├── auth.py        # /auth/*
 │       ├── usuarios.py    # /usuarios
@@ -320,7 +320,7 @@ precedidas de un `FOR UPDATE` sobre el jugador.
 | Claves | `CLAVE_TOKENS` (32 bytes) → HKDF-SHA256 → una subclave para PASETO y otra para los sucesores de refresh |
 | Refresh | 256 bits aleatorios; sucesor = `HMAC-SHA256(subclave, refresh)`; en BD solo SHA-256. Rotación con `SELECT … FOR UPDATE`. Ventana idempotente de 120 s (CONTRATO_AUTH.md §5) |
 | Cada petición | Se carga el usuario de la BD: el rol se lee de ahí; cuenta desactivada → 403; `iat < sesiones_validas_desde` → 401 |
-| Fuerza bruta | Por cuenta (BD): 5 fallos → 30 s, duplicando hasta 15 min; también cuenta en `PUT /auth/password`. Por IP (memoria): límites altos porque un aula comparte IP; en el login solo cuentan los fallos (contador propio con `limits`, comprobado antes de calcular ningún hash) y los techos totales los pone slowapi (§4.2) |
+| Fuerza bruta | Por cuenta (BD): 5 fallos → 30 s, duplicando hasta 15 min; también cuenta en `PUT /auth/password`. Por IP (memoria): límites altos porque un aula comparte IP; en el login solo cuentan los fallos (contador propio con `limits`, comprobado antes de calcular ningún hash) y los techos totales, una dependencia `por_ip` sobre la misma librería (§4.2) |
 | Enumeración | Mismo 401 para alias inexistente y contraseña mala; con alias inexistente se verifica un hash falso. (El registro revela si un alias existe con 409: es inherente, y por eso tiene el límite más estricto) |
 | Asignación masiva | `extra="forbid"` en los cuerpos de auth |
 | Respuestas | HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`; `Cache-Control: no-store` en `/auth`; 422 sin `input` |
@@ -400,7 +400,7 @@ fijada (comprobado al cerrar la Fase 1).
 | cryptography | 50.0.2 | TLS y `caching_sha2_password` de MySQL 8; HKDF |
 | pyseto | 1.10.0 | PASETO (iso8601 2.1.0, pycryptodomex 3.24.0) |
 | argon2-cffi | 25.1.0 | Argon2id (argon2-cffi-bindings 26.1.0) |
-| slowapi | 0.1.10 | Límite por IP (limits 5.8.0, Deprecated 3.0.0, wrapt 2.5.0, packaging 26.3) |
+| limits | 5.8.0 | Límite por IP (Deprecated 3.0.0, wrapt 2.5.0, packaging 26.3). Sustituye a slowapi desde la Fase 6 |
 | scikit-learn / pandas / joblib | 1.9.1 / 3.0.6 / 1.6.0 | Modelo (numpy 2.5.4, scipy 1.18.1, threadpoolctl 3.7.0, narwhals 2.27.1, cloudpickle 3.1.2, python-dateutil 2.9.0.post0, six 1.17.0) |
 | otras | anyio 4.15.1, h11 0.16.0, idna 3.20, click 8.5.0, cffi 2.1.1, pycparser 3.11, annotated-types 0.8.0, typing_extensions 4.16.0, typing-inspection 0.4.4 | transitivas |
 
