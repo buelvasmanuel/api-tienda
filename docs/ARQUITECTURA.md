@@ -595,7 +595,7 @@ admin en los logs (ya se registran los bloqueos) en lugar de alargar el bloqueo.
 
 **Pendientes de fin de semana** (los hace el usuario):
 
-- [ ] Desactivar `Prueba_Frontend_1011` (id 2) cuando el frontend termine sus
-      pruebas: `PATCH /usuarios/2 {"activo": false}` con el admin.
+- [x] Desactivar `Prueba_Frontend_1011` (id 2): hecho el 2026-10-11 con
+      `PATCH /usuarios/2 {"activo": false}` (el ranking queda limpio).
 - [ ] Revocar la API key de Render guardada en `~/.config/render/api_key`
       (panel de Render → Account Settings → API Keys) y borrar el archivo.
