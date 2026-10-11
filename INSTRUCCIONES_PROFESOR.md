@@ -285,7 +285,7 @@ flutter run -d <id-del-celular> --dart-define=API_URL=http://127.0.0.1:8000
 
 | Dónde | Qué debe verse |
 |---|---|
-| `/docs` de la API (local: <http://127.0.0.1:8000/docs> · nube: <https://api-tienda-wjac.onrender.com/docs>) | Swagger con los grupos Productos, Categorías, Estudiantes, Estadísticas y Predicción |
+| `/docs` de la API (local: <http://127.0.0.1:8000/docs> · nube: <https://api-tienda-wjac.onrender.com/docs>) | Swagger con los grupos Estudiantes, Estadísticas y Predicción |
 | App → **Estudiantes** | "300 de 300" y el filtro **"En riesgo (55)"**; promedios < 3.0 en rojo. Tocar uno abre el detalle |
 | App → **Gráficas** | "Estudiantes por carrera": Derecho es la más alta (**49**). El desplegable cambia entre 6 estadísticas |
 | App → **Predicción** | Elegir **Psicología** y pulsar Predecir → tarjeta **verde** "Sin riesgo". Elegir **Medicina**, horas en **0** y asistencia en **30 %** → tarjeta **roja** "En riesgo". Abajo: métricas del modelo (recall 73 %) |

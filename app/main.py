@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import categorias, estadisticas, estudiantes, prediccion, productos
+from app.routers import estadisticas, estudiantes, prediccion
 
 # Las tablas se crean y modifican con migraciones de Alembic (alembic upgrade head).
 app = FastAPI(title="API Tienda")
@@ -17,8 +17,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(productos.router)
-app.include_router(categorias.router)
 app.include_router(estudiantes.router)
 app.include_router(estadisticas.router)
 app.include_router(prediccion.router)

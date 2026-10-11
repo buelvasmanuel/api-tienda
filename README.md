@@ -1,7 +1,11 @@
 # API Tienda
 
-API REST para gestionar los productos de una tienda, construida con
-**FastAPI**, **SQLAlchemy 2.x** y **MariaDB** (a través de PyMySQL).
+API REST de estudiantes (CRUD, estadísticas y un modelo predictivo de riesgo
+académico), construida con **FastAPI**, **SQLAlchemy 2.x** y **MariaDB** (a
+través de PyMySQL). Es el backend de la app Flutter `app_estudiantes`.
+
+> El nombre «tienda» viene de la primera actividad del curso (productos y
+> categorías); esas tablas se eliminaron el 2026-10-11 (migración `f9047f24dd9b`).
 
 > **Para ejecutarlo desde cero en Windows o Linux:** ver
 > [INSTRUCCIONES_PROFESOR.md](INSTRUCCIONES_PROFESOR.md).
@@ -142,11 +146,6 @@ comando (las variables de entorno tienen prioridad sobre `.env`):
 ```bash
 DB_NAME=tienda_test alembic upgrade head
 ```
-
-> **Base creada antes de usar Alembic:** si la tabla `productos` ya existía
-> (creada con `create_all`), no ejecutes `upgrade` (fallaría al intentar
-> crearla de nuevo). Marca la base como actualizada sin tocar los datos con
-> `alembic stamp 3adaaf027eed` y a partir de ahí usa `upgrade` con normalidad.
 
 ## Ejecutar
 
@@ -402,8 +401,6 @@ api-tienda/
 │   ├── schemas.py       # Esquemas de Pydantic (validación y respuesta)
 │   ├── ml.py            # Variables y Pipeline del modelo (compartido script/API)
 │   └── routers/
-│       ├── productos.py   # Endpoints CRUD de /productos
-│       ├── categorias.py  # Endpoints CRUD de /categorias
 │       ├── estudiantes.py # Endpoints CRUD de /estudiantes
 │       ├── estadisticas.py # Estadísticas de estudiantes (GROUP BY)
 │       └── prediccion.py  # Predicción de riesgo académico
@@ -417,8 +414,7 @@ api-tienda/
 ├── alembic.ini          # Configuración de Alembic (sin credenciales)
 ├── tests/
 │   ├── conftest.py      # Base tienda_test, migraciones, rollback por test
-│   ├── test_productos.py
-│   ├── test_categorias.py
+│   ├── test_migraciones.py # Las migraciones coinciden con los modelos
 │   ├── test_estudiantes.py
 │   ├── test_estadisticas.py
 │   └── test_prediccion.py
@@ -459,37 +455,11 @@ Cómo funcionan (`tests/conftest.py`):
 
 ## Endpoints
 
-### Productos
+### Raíz
 
-| Método   | Ruta                     | Descripción              | Respuesta |
-|----------|--------------------------|--------------------------|-----------|
-| `GET`    | `/`                      | Comprobar que la API funciona | 200  |
-| `GET`    | `/productos/`            | Listar productos         | 200       |
-| `GET`    | `/productos/{id}`        | Obtener un producto      | 200 / 404 |
-| `POST`   | `/productos/`            | Crear un producto        | 201 / 422 |
-| `PUT`    | `/productos/{id}`        | Actualizar un producto   | 200 / 404 / 422 |
-| `DELETE` | `/productos/{id}`        | Eliminar un producto     | 204 / 404 |
-
-Un producto puede pertenecer a una categoría (`categoria_id`, opcional). Si se
-indica una categoría que no existe, la API responde **422**.
-
-### Categorías
-
-| Método   | Ruta                          | Descripción                    | Respuesta |
-|----------|-------------------------------|--------------------------------|-----------|
-| `GET`    | `/categorias/`                | Listar categorías              | 200       |
-| `GET`    | `/categorias/{id}`            | Obtener una categoría          | 200 / 404 |
-| `GET`    | `/categorias/{id}/productos`  | Productos de una categoría     | 200 / 404 |
-| `POST`   | `/categorias/`                | Crear una categoría            | 201 / 409 / 422 |
-| `PUT`    | `/categorias/{id}`            | Actualizar una categoría       | 200 / 404 / 409 / 422 |
-| `DELETE` | `/categorias/{id}`            | Eliminar una categoría         | 204 / 404 |
-
-- El nombre de la categoría es **único** y la comparación no distingue
-  mayúsculas ni acentos (collation `utf8mb4_unicode_ci`): si existe "Ropa",
-  crear "ropa" o "RÓPA" devuelve **409 Conflict**.
-- Los espacios al inicio y al final de los nombres se eliminan.
-- Al borrar una categoría, sus productos **no** se borran: quedan con
-  `categoria_id = null` (`ON DELETE SET NULL`).
+| Método   | Ruta | Descripción                   | Respuesta |
+|----------|------|-------------------------------|-----------|
+| `GET`    | `/`  | Comprobar que la API funciona | 200       |
 
 ### Estudiantes
 

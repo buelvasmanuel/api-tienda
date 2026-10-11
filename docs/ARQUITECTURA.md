@@ -1,6 +1,7 @@
 # Arquitectura de `api-tienda` (estado verificado)
 
-> Verificado contra el código el **2026-10-11**, commit `52ddbf5` (rama `main`).
+> Verificado contra el código el **2026-10-11** (commit `52ddbf5`, rama `main`).
+> Actualizado: Producto y Categoría eliminados (migración `f9047f24dd9b`).
 > Es la versión exacta de la sección 1 de `PROPUESTA_ESTUDIANTES_2.0.md` para
 > el backend. Si el código cambia, este documento se actualiza en el mismo commit.
 
@@ -34,24 +35,23 @@ api-tienda/
 │   ├── main.py            # FastAPI(title="API Tienda"), CORS, registro de routers, GET /
 │   ├── config.py          # Settings (pydantic-settings): DB_*, DB_SSL_CA, CORS_ORIGINS
 │   ├── database.py        # crear_engine(), collation por evento, NAMING_CONVENTION, Base, get_db()
-│   ├── models.py          # Categoria, Producto, Estudiante
+│   ├── models.py          # Estudiante
 │   ├── schemas.py         # Esquemas Pydantic y tipos Annotated compartidos
 │   ├── ml.py              # Variables, pipeline y utilidades del modelo (compartido script/API)
 │   └── routers/
-│       ├── productos.py
-│       ├── categorias.py
 │       ├── estudiantes.py
 │       ├── estadisticas.py
 │       └── prediccion.py  # CargadorModelo (recarga por mtime, con lock)
 ├── alembic/
 │   ├── env.py             # Usa crear_engine(); acepta una conexión externa (tests)
-│   └── versions/          # 4 migraciones (ver §3.2)
+│   └── versions/          # 5 migraciones (ver §3.2)
 ├── scripts/
 │   ├── seed_estudiantes.py  # Faker("es_CO"), semilla 42, --cantidad, --reset
 │   ├── graficas.py          # PNG por estadística (llama a la API con httpx2)
 │   └── entrenar_modelo.py   # CV estratificada 5 particiones, elige por F2, --sin-graficas
-├── tests/                 # 133 tests (pytest), base tienda_test
-├── docs/ARQUITECTURA.md   # este archivo
+├── tests/                 # pytest, base tienda_test
+├── docs/                  # ARQUITECTURA.md (este archivo), CONTRATO_AUTH.md
+├── .github/workflows/     # tests.yml: CI con MariaDB y MySQL 8.4
 ├── alembic.ini, pytest.ini, render.yaml, .python-version (3.14.7)
 ├── requirements.txt, requirements-dev.txt, .env.example
 ├── README.md, INSTRUCCIONES_PROFESOR.md
@@ -66,25 +66,6 @@ api-tienda/
 
 `Base` declara `MetaData(naming_convention=...)` con nombres `ix_`, `uq_`,
 `ck_`, `fk_`, `pk_` para que Alembic pueda borrar restricciones en los downgrade.
-
-**`categorias`** — `Categoria`
-
-| Columna | Tipo | Restricciones |
-|---|---|---|
-| `id` | INT | PK |
-| `nombre` | VARCHAR(50) | NOT NULL, `uq_categorias_nombre` (sin distinguir mayúsculas por la collation) |
-
-Relación `productos` con `passive_deletes=True`.
-
-**`productos`** — `Producto`
-
-| Columna | Tipo | Restricciones |
-|---|---|---|
-| `id` | INT | PK (sin nombre explícito: la migración es anterior a la convención; en MySQL da igual, la PK siempre se llama `PRIMARY`) |
-| `nombre` | VARCHAR(100) | NOT NULL |
-| `precio` | NUMERIC(10,2) | NOT NULL |
-| `stock` | INT | NOT NULL (default 0 en Python, no en la BD) |
-| `categoria_id` | INT NULL | FK `fk_productos_categoria_id_categorias` → `categorias.id` `ON DELETE SET NULL` |
 
 **`estudiantes`** — `Estudiante`
 
@@ -105,14 +86,15 @@ auditoría (`creado_en`, etc.).
 
 ### 3.2 Migraciones (Alembic 1.20)
 
-Cadena lineal; los archivos llevan fecha en el nombre (`file_template` en `alembic.ini`).
+Cadena lineal (las tres primeras crearon las tablas de la tienda, hoy eliminadas); los archivos llevan fecha en el nombre (`file_template` en `alembic.ini`).
 
 | Revisión | Archivo | Qué hace |
 |---|---|---|
 | `3adaaf027eed` | `2026_10_10_1620-…_crear_tabla_productos` | Crea `productos` |
 | `cc73e9874b06` | `2026_10_10_1626-…_crear_tabla_categorias` | Crea `categorias` y la FK de `productos` |
 | `81a56be44550` | `2026_10_10_1643-…_crear_tabla_estudiantes` | Crea `estudiantes` con 5 CHECK |
-| `1d65ce94be3f` (head) | `2026_10_10_2132-…_collation_utf8mb4_unicode_ci` | `ALTER DATABASE` + `CONVERT TO` en las 3 tablas; downgrade no-op a propósito |
+| `1d65ce94be3f` | `2026_10_10_2132-…_collation_utf8mb4_unicode_ci` | `ALTER DATABASE` + `CONVERT TO` en las 3 tablas; downgrade no-op a propósito |
+| `f9047f24dd9b` (head) | `2026_10_11_0147-…_eliminar_productos_y_categorias` | Borra `productos` y `categorias` (legado de la primera actividad); el downgrade las recrea vacías |
 
 ### 3.3 Collation y conexión
 
@@ -135,7 +117,7 @@ Las rutas de colección terminan en `/` (`/estudiantes/`); sin la barra
 responden `307` hacia la versión con barra.
 
 `Decimal` se serializa en JSON como **texto** (`"3.45"`, `"1200.00"`): afecta
-a `promedio` y a `precio`. Por eso Flutter usa `leerNum`.
+a `promedio`. Por eso Flutter usa `leerNum`.
 
 ### 4.1 Raíz
 
@@ -143,28 +125,7 @@ a `promedio` y a `precio`. Por eso Flutter usa `leerNum`.
 |---|---|---|
 | GET | `/` | `{"mensaje": "API funcionando"}` — también es el `healthCheckPath` de Render (no toca la BD) |
 
-### 4.2 Productos (`/productos`, tag «Productos»)
-
-| Método | Ruta | Cuerpo | Respuesta | Errores |
-|---|---|---|---|---|
-| GET | `/productos/` | — | `list[ProductoOut]` (sin orden explícito) | — |
-| GET | `/productos/{producto_id}` | — | `ProductoOut` | 404 |
-| POST | `/productos/` | `ProductoCreate` | 201 `ProductoOut` | 422 (validación o categoría inexistente) |
-| PUT | `/productos/{producto_id}` | `ProductoCreate` | `ProductoOut` | 404, 422 |
-| DELETE | `/productos/{producto_id}` | — | 204 | 404 |
-
-### 4.3 Categorías (`/categorias`, tag «Categorías»)
-
-| Método | Ruta | Cuerpo | Respuesta | Errores |
-|---|---|---|---|---|
-| GET | `/categorias/` | — | `list[CategoriaOut]` | — |
-| GET | `/categorias/{categoria_id}` | — | `CategoriaOut` | 404 |
-| GET | `/categorias/{categoria_id}/productos` | — | `list[ProductoOut]` | 404 |
-| POST | `/categorias/` | `CategoriaCreate` | 201 `CategoriaOut` | 409 (nombre repetido, sin distinguir mayúsculas; también si choca el UNIQUE en carrera) |
-| PUT | `/categorias/{categoria_id}` | `CategoriaCreate` | `CategoriaOut` | 404, 409 |
-| DELETE | `/categorias/{categoria_id}` | — | 204 (sus productos quedan con `categoria_id = NULL`) | 404 |
-
-### 4.4 Estudiantes (`/estudiantes`, tag «Estudiantes»)
+### 4.2 Estudiantes (`/estudiantes`, tag «Estudiantes»)
 
 | Método | Ruta | Cuerpo | Respuesta | Errores |
 |---|---|---|---|---|
@@ -174,7 +135,7 @@ a `promedio` y a `precio`. Por eso Flutter usa `leerNum`.
 | PUT | `/estudiantes/{estudiante_id}` | `EstudianteCreate` (reemplazo completo, no hay PATCH) | `EstudianteOut` | 404, 422 |
 | DELETE | `/estudiantes/{estudiante_id}` | — | 204 | 404 |
 
-### 4.5 Estadísticas (`/estudiantes/estadisticas`, tag «Estadísticas»)
+### 4.3 Estadísticas (`/estudiantes/estadisticas`, tag «Estadísticas»)
 
 Todas: `GET`, sin parámetros, respuesta `list[EstadisticaOut]` =
 `[{"etiqueta": str, "valor": int | float}]`. El cálculo lo hace SQL (`GROUP BY`).
@@ -188,7 +149,7 @@ Todas: `GET`, sin parámetros, respuesta `list[EstadisticaOut]` =
 | `/promedio-por-carrera` | `ROUND(AVG(promedio), 2)` | media desc, carrera asc |
 | `/riesgo-por-carrera` | `ROUND(100·AVG(promedio < 3 ? 1 : 0), 2)` (%) | % desc, carrera asc |
 
-### 4.6 Predicción (`/prediccion`, tag «Predicción»)
+### 4.4 Predicción (`/prediccion`, tag «Predicción»)
 
 | Método | Ruta | Cuerpo | Respuesta | Errores |
 |---|---|---|---|---|
@@ -198,17 +159,13 @@ Todas: `GET`, sin parámetros, respuesta `list[EstadisticaOut]` =
 `en_riesgo` se decide con la probabilidad sin redondear (`>= 0.5`); `probabilidad`
 se devuelve redondeada a 2 decimales.
 
-### 4.7 Esquemas (Pydantic 2.14)
+### 4.5 Esquemas (Pydantic 2.14)
 
 Tipos compartidos (`Annotated`): `Edad` 16–35, `Carrera` 1–100 caracteres,
 `Semestre` 1–10, `HorasEstudio` 0–40, `Asistencia` 0–100.
 
 | Esquema | Campos | Notas |
 |---|---|---|
-| `CategoriaCreate` | `nombre: str` (1–50) | `str_strip_whitespace` |
-| `CategoriaOut` | + `id` | `from_attributes` |
-| `ProductoCreate` | `nombre` (1–100), `precio: Decimal` (>0, 10,2), `stock: int` (≥0, def. 0), `categoria_id: int \| None` | `str_strip_whitespace` |
-| `ProductoOut` | + `id` | |
 | `EstudianteCreate` | `nombre`, `apellido` (1–50), `edad`, `carrera`, `semestre`, `promedio: Decimal` (0–5, 3,2), `ciudad` (1–100), `horas_estudio`, `asistencia` | `str_strip_whitespace` |
 | `EstudianteOut` | + `id` | |
 | `EstadisticaOut` | `etiqueta: str`, `valor: int \| float` | |
@@ -287,15 +244,15 @@ CORS: `allow_methods=["*"]`, `allow_headers=["*"]`, sin `allow_credentials`.
 
 ## 8. Tests
 
-- 133 tests (`pytest -q`: 133 passed en ~3 s el 2026-10-11): productos 15,
-  categorías 16, estudiantes 13, estadísticas 10, predicción 13 funciones
-  (el resto son casos de `parametrize`).
+- En la verificación inicial (2026-10-11) había 133 tests en verde; 49 eran de
+  productos y categorías y se fueron con ellas. `test_migraciones.py` comprueba
+  que `alembic upgrade head` produce exactamente el esquema de los modelos.
 - `conftest.py`: misma URL del `.env` pero base `tienda_test` (con `assert`
   de seguridad); migra a `head` al inicio de la sesión y hace `downgrade base`
   al final; cada test corre en una transacción con
   `join_transaction_mode="create_savepoint"` que se deshace; `client` sustituye
   `get_db` con `dependency_overrides`. Requiere MariaDB local en marcha.
-- No hay CI para el backend.
+- CI: `.github/workflows/tests.yml` ejecuta `pytest` contra `mariadb:lts` y `mysql:8.4`.
 
 ---
 
@@ -362,26 +319,23 @@ Ordenada por impacto.
 2. **`CORS_ORIGINS` tiene `"*"` por defecto.** Si falta la variable en un
    despliegue, se abre a cualquier origen sin avisar. Además, `"*"` no se puede
    combinar con `allow_credentials=True` (cookies), que la Fase 1 podría necesitar.
-3. **Transitivas sin fijar** (numpy, scipy, threadpoolctl…). Dos builds del
-   mismo commit pueden instalar versiones distintas. El riesgo de pickle se
-   evita porque se entrena y se sirve en el mismo entorno, pero los builds no
-   son reproducibles.
+3. ~~Transitivas sin fijar~~ — resuelto: numpy, scipy, threadpoolctl y demás
+   quedan fijadas en `requirements.txt`.
 4. **El modelo cambia en cada deploy.** Reentrenar en el build con los datos
    del momento hace que métricas, coeficientes e incluso el tipo de modelo
    (logística ↔ árbol, se elige por F2) puedan cambiar sin un commit. Para un
    juego que explica el modelo («la asistencia pesó 3 veces más»), eso es frágil.
 5. **Umbral duplicado**: `estadisticas.RIESGO = 3` y `ml.UMBRAL_RIESGO = 3.0`.
-6. **Sin CI** en el backend.
+6. ~~Sin CI en el backend~~ — resuelto (`.github/workflows/tests.yml`).
 7. **Sin columnas de tiempo ni convención de zona horaria.** Las tablas nuevas
    (sesiones, rachas) la necesitan: MySQL `DATETIME` no guarda zona.
 8. **`GET /prediccion/metricas` sin `response_model`**: el contrato no aparece en
    OpenAPI.
 9. **Sin cabeceras de seguridad** (no hay `Strict-Transport-Security` ni
    `X-Content-Type-Options`, comprobado en producción) ni logs de aplicación.
-10. **Sin paginación** en `GET /estudiantes/` ni `GET /productos/` (con 300
-    filas no molesta; quedó aplazada).
-11. Menores: `/productos/` y `/categorias/` sin `ORDER BY`; la PK de
-    `productos` sin nombre de la convención; formato de error mixto (`detail`
+10. **Sin paginación** en `GET /estudiantes/` (con 300 filas no molesta;
+    quedó aplazada).
+11. Menores: formato de error mixto (`detail`
     es texto en unos casos y objeto en el 422 de predicción); ningún esquema
     rechaza campos desconocidos (`extra="forbid"`), algo que importará en
     `/auth/registro`.
