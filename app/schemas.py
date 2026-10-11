@@ -74,6 +74,10 @@ Rol = Literal["jugador", "docente", "admin"]
 FechaUTC = Annotated[datetime, PlainSerializer(lambda d: d.isoformat(timespec="microseconds") + "Z")]
 
 
+def password_igual_al_alias(password: str, alias: str) -> bool:
+    return password.casefold() == alias.casefold()
+
+
 class Entrada(BaseModel):
     """Base de los cuerpos de /auth y /usuarios: campos desconocidos → 422
     (nadie puede colar, p. ej., "rol": "admin" en el registro)."""
@@ -87,7 +91,7 @@ class RegistroEntrada(Entrada):
 
     @model_validator(mode="after")
     def _password_distinta_del_alias(self) -> Self:
-        if self.password.casefold() == self.alias.casefold():
+        if password_igual_al_alias(self.password, self.alias):
             raise ValueError("La contraseña no puede ser igual al alias")
         return self
 
@@ -112,3 +116,36 @@ class TokensOut(BaseModel):
     refresh_token: str
     refresh_expires_in: int = Field(description="Segundos hasta que caduca este refresh token")
     usuario: UsuarioOut
+
+
+class RefreshEntrada(Entrada):
+    # Holgado a propósito: cualquier texto que no sea un refresh nuestro (p. ej.
+    # un access token) debe dar 401 refresh_invalido, no 422.
+    refresh_token: str = Field(max_length=512)
+
+
+class PasswordCambio(Entrada):
+    password_actual: str = Field(max_length=128)
+    password_nueva: Password
+
+
+class SesionOut(BaseModel):
+    id: str = Field(description="Identificador de la sesión (familia de refresh tokens)")
+    iniciada_en: FechaUTC
+    ultimo_uso: FechaUTC
+    dispositivo: str | None = Field(description="User-Agent del último refresh o del login")
+    actual: bool = Field(description="True si es la sesión del access token de esta petición")
+
+
+class UsuarioAdminOut(UsuarioOut):
+    activo: bool
+    creado_en: FechaUTC
+
+
+class UsuarioCambios(Entrada):
+    rol: Rol | None = None
+    activo: bool | None = None
+
+
+class PasswordAdmin(Entrada):
+    password_nueva: Password

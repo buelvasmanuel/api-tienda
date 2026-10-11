@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 
 from app import reloj, schemas, seguridad, sesiones
 from app.database import get_db
-from app.dependencias import usuario_actual
-from app.errores import demasiados_intentos, error, no_autorizado
+from app.dependencias import SesionActual, sesion_actual, usuario_actual
+from app.errores import demasiados_intentos, error, no_autorizado, validacion_password_igual_al_alias
 from app.models import Usuario
 
 log = logging.getLogger("app.auth")
@@ -43,19 +43,41 @@ def duracion_bloqueo(fallos: int) -> timedelta | None:
 
 
 def tokens(usuario: Usuario, emitido: sesiones.Emitido) -> schemas.TokensOut:
-    # Desde la emisión, no desde "ahora": así no se pierde un segundo al truncar.
-    restante = emitido.sesion.expira_en - emitido.sesion.creado_en
+    # round, no int: entre crear la fila y llegar aquí pasan microsegundos, y
+    # truncar daría 1209599 en vez de 14 días justos.
+    restante = emitido.sesion.expira_en - reloj.ahora()
     return schemas.TokensOut(
         access_token=seguridad.crear_access(usuario.id, emitido.sesion.familia_id),
         expires_in=int(seguridad.ACCESS_DURACION.total_seconds()),
         refresh_token=emitido.refresh,
-        refresh_expires_in=int(restante.total_seconds()),
+        refresh_expires_in=max(0, round(restante.total_seconds())),
         usuario=schemas.UsuarioOut.model_validate(usuario),
     )
 
 
 def _alias_en_uso():
     return error(status.HTTP_409_CONFLICT, "alias_en_uso", "Ese alias ya está en uso")
+
+
+def comprobar_bloqueo(usuario: Usuario) -> None:
+    """429 si la cuenta está bloqueada por demasiados fallos."""
+    ahora = reloj.ahora()
+    if usuario.bloqueado_hasta and ahora < usuario.bloqueado_hasta:
+        raise demasiados_intentos(math.ceil((usuario.bloqueado_hasta - ahora).total_seconds()))
+
+
+def registrar_fallo(usuario: Usuario) -> None:
+    usuario.intentos_fallidos += 1
+    bloqueo = duracion_bloqueo(usuario.intentos_fallidos)
+    if bloqueo:
+        usuario.bloqueado_hasta = reloj.ahora() + bloqueo
+        log.warning("cuenta bloqueada alias=%s fallos=%s durante=%ss",
+                    usuario.alias, usuario.intentos_fallidos, int(bloqueo.total_seconds()))
+
+
+def registrar_acierto(usuario: Usuario) -> None:
+    usuario.intentos_fallidos = 0
+    usuario.bloqueado_hasta = None
 
 
 @router.post("/registro", response_model=schemas.TokensOut, status_code=status.HTTP_201_CREATED)
@@ -92,24 +114,14 @@ def login(datos: schemas.LoginEntrada, request: Request, db: Session = Depends(g
         seguridad.gastar_tiempo_de_verificacion(datos.password)
         raise credenciales_invalidas
 
-    ahora = reloj.ahora()
-    if usuario.bloqueado_hasta and ahora < usuario.bloqueado_hasta:
-        espera = math.ceil((usuario.bloqueado_hasta - ahora).total_seconds())
-        db.rollback()
-        raise demasiados_intentos(espera)
+    comprobar_bloqueo(usuario)
 
     if not seguridad.verificar_password(usuario.hash_password, datos.password):
-        usuario.intentos_fallidos += 1
-        bloqueo = duracion_bloqueo(usuario.intentos_fallidos)
-        if bloqueo:
-            usuario.bloqueado_hasta = ahora + bloqueo
-            log.warning("cuenta bloqueada alias=%s fallos=%s durante=%ss",
-                        usuario.alias, usuario.intentos_fallidos, int(bloqueo.total_seconds()))
+        registrar_fallo(usuario)
         db.commit()
         raise credenciales_invalidas
 
-    usuario.intentos_fallidos = 0
-    usuario.bloqueado_hasta = None
+    registrar_acierto(usuario)
     if not usuario.activo:
         db.commit()
         raise error(status.HTTP_403_FORBIDDEN, "cuenta_desactivada", "La cuenta está desactivada")
@@ -124,3 +136,72 @@ def login(datos: schemas.LoginEntrada, request: Request, db: Session = Depends(g
 @router.get("/yo", response_model=schemas.UsuarioOut)
 def yo(usuario: Usuario = Depends(usuario_actual)):
     return usuario
+
+
+@router.post("/refresh", response_model=schemas.TokensOut)
+def refresh(datos: schemas.RefreshEntrada, request: Request, db: Session = Depends(get_db)):
+    """Cambia el refresh por uno nuevo y entrega un access nuevo.
+
+    Repetir el mismo refresh dentro de 30 s (sin haber usado aún el nuevo)
+    devuelve el mismo refresh nuevo: reintentos y peticiones simultáneas son
+    seguros. Fuera de esa ventana, reusar un refresh cierra la sesión entera.
+    """
+    try:
+        usuario, emitido = sesiones.rotar(db, datos.refresh_token, request.headers.get("user-agent"))
+    except sesiones.RefreshRechazado as e:
+        db.commit()  # guarda la revocación si fue un reuso
+        if e.estado == status.HTTP_401_UNAUTHORIZED:
+            raise no_autorizado(e.codigo, e.mensaje)
+        raise error(e.estado, e.codigo, e.mensaje)
+    db.commit()
+    return tokens(usuario, emitido)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(datos: schemas.RefreshEntrada, db: Session = Depends(get_db)):
+    """Cierra la sesión de ese refresh. Siempre 204: no revela si existía."""
+    sesiones.cerrar(db, datos.refresh_token)
+    db.commit()
+
+
+@router.post("/logout-todo", status_code=status.HTTP_204_NO_CONTENT)
+def logout_todo(usuario: Usuario = Depends(usuario_actual), db: Session = Depends(get_db)):
+    """Cierra todas las sesiones del usuario, incluida esta, al instante."""
+    sesiones.cerrar_todas(db, usuario, "logout_todo")
+    db.commit()
+
+
+@router.get("/sesiones", response_model=list[schemas.SesionOut])
+def listar_sesiones(actual: SesionActual = Depends(sesion_actual), db: Session = Depends(get_db)):
+    return [
+        schemas.SesionOut(
+            id=s.familia_id,
+            iniciada_en=s.familia_expira_en - seguridad.FAMILIA_DURACION,
+            ultimo_uso=s.creado_en,
+            dispositivo=s.user_agent,
+            actual=s.familia_id == actual.familia_id,
+        )
+        for s in sesiones.abiertas(db, actual.usuario)
+    ]
+
+
+@router.put("/password", response_model=schemas.TokensOut)
+def cambiar_password(datos: schemas.PasswordCambio, request: Request,
+                     usuario: Usuario = Depends(usuario_actual), db: Session = Depends(get_db)):
+    """Cambia la contraseña, cierra todas las sesiones y abre una nueva aquí."""
+    # Los fallos cuentan para el bloqueo: con un access robado tampoco se
+    # puede adivinar la contraseña actual por fuerza bruta.
+    comprobar_bloqueo(usuario)
+    if not seguridad.verificar_password(usuario.hash_password, datos.password_actual):
+        registrar_fallo(usuario)
+        db.commit()
+        raise error(status.HTTP_403_FORBIDDEN, "password_actual_incorrecta", "La contraseña actual no es correcta")
+    if schemas.password_igual_al_alias(datos.password_nueva, usuario.alias):
+        raise validacion_password_igual_al_alias("password_nueva")
+
+    registrar_acierto(usuario)
+    usuario.hash_password = seguridad.hashear_password(datos.password_nueva)
+    sesiones.cerrar_todas(db, usuario, "password")
+    emitido = sesiones.abrir(db, usuario, request.headers.get("user-agent"))
+    db.commit()
+    return tokens(usuario, emitido)

@@ -420,6 +420,7 @@ api-tienda/
 │   ├── errores.py       # Errores con código: {"detail": {"codigo", "mensaje"}}
 │   └── routers/
 │       ├── auth.py        # /auth: registro, login, refresh, sesiones
+│       ├── usuarios.py    # /usuarios: gestión por docentes y admins
 │       ├── estudiantes.py # Endpoints CRUD de /estudiantes
 │       ├── estadisticas.py # Estadísticas de estudiantes (GROUP BY)
 │       └── prediccion.py  # Predicción de riesgo académico
@@ -440,6 +441,8 @@ api-tienda/
 │   ├── test_modelo_usuarios.py # CHECK y UNIQUE de usuarios y sesiones
 │   ├── test_seguridad.py # Ataques al access token
 │   ├── test_auth.py     # Registro, login, bloqueo y permisos por rol
+│   ├── test_refresh.py  # Rotación, reintentos, reuso, concurrencia, logout
+│   ├── test_usuarios.py # Gestión de usuarios
 │   ├── test_estudiantes.py
 │   ├── test_estadisticas.py
 │   └── test_prediccion.py
@@ -494,7 +497,15 @@ debe hacer el cliente en cada caso) está en
 |--------|-------------------|-------------|-------------|
 | `POST` | `/auth/registro`  | público     | Crea una cuenta de jugador y abre sesión |
 | `POST` | `/auth/login`     | público     | Abre una sesión (bloqueo temporal tras 5 fallos) |
+| `POST` | `/auth/refresh`   | público     | Cambia el refresh por uno nuevo (rotación) y da un access nuevo |
+| `POST` | `/auth/logout`    | público     | Cierra la sesión de ese refresh |
+| `POST` | `/auth/logout-todo` | con token | Cierra todas las sesiones del usuario |
 | `GET`  | `/auth/yo`        | con token   | Usuario de la sesión |
+| `GET`  | `/auth/sesiones`  | con token   | Sesiones abiertas (dispositivo, último uso) |
+| `PUT`  | `/auth/password`  | con token   | Cambia la contraseña y cierra las demás sesiones |
+| `GET`  | `/usuarios`       | docente, admin | Lista de usuarios |
+| `PATCH`| `/usuarios/{id}`  | admin       | Cambia rol o activa/desactiva |
+| `PUT`  | `/usuarios/{id}/password` | admin | Restablece la contraseña (no hay email) |
 
 Las peticiones protegidas llevan `Authorization: Bearer <access_token>`. En
 Swagger (`/docs`): botón **Authorize** y pegar el `access_token` del login.

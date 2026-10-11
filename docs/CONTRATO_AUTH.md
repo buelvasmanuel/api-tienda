@@ -33,7 +33,8 @@ Los errores de autenticación y de `/usuarios` tienen siempre esta forma:
 - Los `401` llevan la cabecera `WWW-Authenticate: Bearer`.
 - Los `429` llevan la cabecera `Retry-After` (segundos, entero).
 - Los `422` de validación son los estándar de FastAPI
-  (`{"detail": [{"loc": [...], "msg": "...", "type": "..."}]}`).
+  (`{"detail": [{"loc": [...], "msg": "...", "type": "..."}]}`) **sin el campo
+  `input`** en toda la API: así nunca se devuelve una contraseña enviada.
 - Los endpoints anteriores (`/estudiantes`, `/prediccion`) mantienen su formato
   (`detail` texto); solo añaden los `401/403` de esta tabla cuando requieren rol.
 
@@ -137,7 +138,8 @@ contraseña sea correcta**. Un login correcto pone el contador a cero.
 
 ### 4.3 `POST /auth/refresh` — público (el refresh es la credencial)
 
-Cuerpo: `{"refresh_token": str}`
+Cuerpo: `{"refresh_token": str}` (hasta 512 caracteres; cualquier texto que
+no sea un refresh vigente da `401 refresh_invalido`, no `422`)
 
 | Respuesta | Cuándo |
 |---|---|
@@ -169,8 +171,9 @@ Sin cuerpo → `204`. Cierra **todas** las sesiones del usuario e invalida
 ```json
 [{"id": "9f2c…(32 hex)", "iniciada_en": "…Z", "ultimo_uso": "…Z", "dispositivo": "Dart/3.9 (dart:io)", "actual": true}]
 ```
-Sesiones abiertas del usuario, la más reciente primero. `dispositivo` es la
-cabecera `User-Agent` recortada a 200 caracteres. `actual` marca la sesión del
+Sesiones abiertas del usuario, la más reciente primero (por último uso).
+`dispositivo` es la cabecera `User-Agent` del último login o refresh de esa
+sesión, recortada a 200 caracteres (o `null`). `actual` marca la sesión del
 access usado.
 
 ### 4.8 `PUT /auth/password` — autenticado
