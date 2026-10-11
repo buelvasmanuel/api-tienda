@@ -1,7 +1,11 @@
 # Contrato del Laboratorio de Rescate (Fase 4)
 
 > Contrato entre `api-tienda` y `app_estudiantes` para el Modo 3 del juego
-> («El Laboratorio de Rescate», PROPUESTA §2.2). Versión **1**, 2026-10-11.
+> («El Laboratorio de Rescate», PROPUESTA §2.2). Versión **1.1**, 2026-10-11.
+>
+> **v1.1 (Fase 5):** `resolver` guarda cada intento y añade a su respuesta
+> `xp_ganada`, `record_estrellas`, `insignias_nuevas` y `progreso`
+> (CONTRATO_JUEGO.md §6). Solo añade campos: lo demás no cambia.
 > Autenticación, formato de errores con `codigo` y comportamiento del
 > interceptor: los de [CONTRATO_AUTH.md](CONTRATO_AUTH.md).
 
@@ -121,9 +125,8 @@ todas de una vez y mover la aguja sin esperar a la red en cada toque.
 ## 4. Laboratorio (`/laboratorio`, requiere sesión)
 
 Cualquier rol (`jugador`, `docente`, `admin`). Sin token → `401` y con token
-caducado → `401`, como en CONTRATO_AUTH (el interceptor refresca). La Fase 5
-guardará aquí los rescates y la experiencia; el contrato de estas respuestas
-no cambiará por eso.
+caducado → `401`, como en CONTRATO_AUTH (el interceptor refresca). Desde la
+v1.1 cada `resolver` se guarda y da experiencia (CONTRATO_JUEGO.md §6).
 
 ### 4.1 Reglas del rescate
 
@@ -206,6 +209,9 @@ Cuerpo: `{"intervenciones": [Intervencion, …]}` (0–5 elementos; p. ej.
 | `422` estándar | Intervención desconocida, más de 5 elementos, campos extra |
 
 - La `solucion_optima` se revela solo aquí, después del intento.
+- v1.1: también devuelve `"xp_ganada"`, `"record_estrellas"`,
+  `"insignias_nuevas"` y `"progreso"` (ver CONTRATO_JUEGO.md §6). Si el
+  intento supera el presupuesto (422), no se guarda nada.
 - Se puede resolver el mismo caso tantas veces como se quiera; cada intento
   se evalúa por separado.
 

@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Numeric, String
+from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, Numeric, String
 from sqlalchemy.dialects.mysql import DATETIME
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -109,3 +109,67 @@ class SesionRefresh(Base):
     user_agent: Mapped[str | None] = mapped_column(String(200))
 
     usuario: Mapped[Usuario] = relationship(back_populates="sesiones")
+
+
+# ---------- Juego: intentos de casos, rescates e insignias (docs/CONTRATO_JUEGO.md) ----------
+# No hay tabla de "progreso": XP, nivel, racha e insignias salen de estas filas,
+# así un total guardado nunca puede desincronizarse de lo que pasó.
+
+class IntentoCaso(Base):
+    """Cada respuesta a un caso del Modo 2, con la XP que dio (0 casi siempre)."""
+
+    __tablename__ = "intentos_caso"
+    __table_args__ = (
+        CheckConstraint("xp >= 0", name="xp"),
+        Index("ix_intentos_caso_usuario_id_caso", "usuario_id", "caso"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id", ondelete="CASCADE"))
+    caso: Mapped[str] = mapped_column(String(40))  # código del catálogo (app/casos.py)
+    respuesta: Mapped[str] = mapped_column(String(100))
+    correcto: Mapped[bool]
+    xp: Mapped[int] = mapped_column(default=0)
+    creado_en: Mapped[datetime] = mapped_column(FechaHora, default=lambda: reloj.ahora())
+
+
+class Rescate(Base):
+    """Cada intento del Laboratorio, con una copia de los datos de partida: si
+    el estudiante se edita o se borra, el historial no cambia."""
+
+    __tablename__ = "rescates"
+    __table_args__ = (
+        CheckConstraint("estrellas BETWEEN 0 AND 3", name="estrellas"),
+        CheckConstraint("fichas BETWEEN 0 AND 5", name="fichas"),
+        CheckConstraint("estudio >= 0 AND tutoria >= 0", name="intervenciones"),
+        CheckConstraint("xp >= 0", name="xp"),
+        CheckConstraint("probabilidad_inicial BETWEEN 0 AND 1 AND probabilidad_final BETWEEN 0 AND 1",
+                        name="probabilidades"),
+        Index("ix_rescates_usuario_id_estudiante_id", "usuario_id", "estudiante_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id", ondelete="CASCADE"))
+    estudiante_id: Mapped[int | None] = mapped_column(ForeignKey("estudiantes.id", ondelete="SET NULL"))
+    horas_estudio_inicial: Mapped[int]
+    asistencia_inicial: Mapped[int]
+    estudio: Mapped[int]
+    tutoria: Mapped[int]
+    fichas: Mapped[int]
+    probabilidad_inicial: Mapped[Decimal] = mapped_column(Numeric(5, 4))
+    probabilidad_final: Mapped[Decimal] = mapped_column(Numeric(5, 4))
+    logrado: Mapped[bool]
+    estrellas: Mapped[int]
+    xp: Mapped[int] = mapped_column(default=0)
+    version_modelo: Mapped[str] = mapped_column(String(20))
+    creado_en: Mapped[datetime] = mapped_column(FechaHora, default=lambda: reloj.ahora())
+
+
+class InsigniaObtenida(Base):
+    """Insignias ganadas. El catálogo (nombres, condiciones) está en app/progreso.py."""
+
+    __tablename__ = "usuarios_insignias"
+
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id", ondelete="CASCADE"), primary_key=True)
+    codigo: Mapped[str] = mapped_column(String(30), primary_key=True)
+    obtenida_en: Mapped[datetime] = mapped_column(FechaHora, default=lambda: reloj.ahora())

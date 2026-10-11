@@ -447,6 +447,8 @@ api-tienda/
 │   ├── modelo_juego.py  # Modelo del juego (logística congelada) y explicación exacta
 │   ├── modelo_juego.json # Parámetros congelados del modelo del juego (versión 2026-10-11)
 │   ├── laboratorio.py   # Reglas del rescate: intervenciones, solución óptima, estrellas
+│   ├── casos.py         # Catálogo de los 9 casos (respuestas calculadas con los datos)
+│   ├── progreso.py      # XP, niveles, racha, insignias y ranking
 │   ├── reloj.py         # Hora UTC en un solo sitio (los tests la adelantan)
 │   ├── seguridad.py     # Argon2id, PASETO v4.local y refresh tokens (sin BD)
 │   ├── sesiones.py      # Familias de refresh tokens en la BD
@@ -459,7 +461,8 @@ api-tienda/
 │       ├── estudiantes.py # Endpoints CRUD de /estudiantes
 │       ├── estadisticas.py # Estadísticas de estudiantes (GROUP BY)
 │       ├── prediccion.py  # Predicción, explicación y lote
-│       └── laboratorio.py # /laboratorio: casos de rescate
+│       ├── laboratorio.py # /laboratorio: casos de rescate
+│       └── juego.py       # /juego: casos, progreso, ranking, jugadores
 ├── scripts/
 │   ├── seed_estudiantes.py # Genera estudiantes de prueba (Faker)
 │   ├── graficas.py      # PNG de las estadísticas (matplotlib)
@@ -486,7 +489,8 @@ api-tienda/
 │   ├── test_prediccion.py
 │   ├── test_prediccion_juego.py # /prediccion/explicacion y /riesgo/lote
 │   ├── test_modelo_juego.py # Inferencia propia = scikit-learn; aportes = SHAP
-│   └── test_laboratorio.py # Reglas del rescate y /laboratorio
+│   ├── test_laboratorio.py # Reglas del rescate y /laboratorio
+│   └── test_juego.py    # Casos, XP, insignias, ranking, rescates guardados, concurrencia
 ├── docs/
 │   ├── ARQUITECTURA.md  # Estado verificado del backend y deuda técnica
 │   └── CONTRATO_AUTH.md # Contrato de autenticación con la app Flutter
@@ -610,4 +614,20 @@ Modo 3 del juego. Contrato completo en
 |--------|------|-------------|-----------|
 | `GET`  | `/laboratorio/casos` | Estudiantes reales con riesgo ≥ 60 % rescatables con 5 fichas | 200 / 401 |
 | `GET`  | `/laboratorio/casos/{id}` | Datos del caso, explicación e intervenciones | 200 / 401 / 404 |
-| `POST` | `/laboratorio/casos/{id}/resolver` | Evalúa las intervenciones; el servidor calcula las estrellas | 200 / 401 / 404 / 422 |
+| `POST` | `/laboratorio/casos/{id}/resolver` | Evalúa las intervenciones; el servidor calcula las estrellas y la XP, y guarda el intento | 200 / 401 / 404 / 422 |
+
+### Juego: casos, progreso y ranking (con sesión)
+
+Modo 2 y progresión. Contrato completo en
+[docs/CONTRATO_JUEGO.md](docs/CONTRATO_JUEGO.md). Las respuestas correctas se
+calculan con los datos reales en cada petición, y la XP, las insignias y el
+nivel salen de los intentos guardados (no hay un total que se desincronice).
+
+| Método | Ruta | Descripción | Respuesta |
+|--------|------|-------------|-----------|
+| `GET`  | `/juego/casos` | Los 9 casos (novato, investigador, experto) con el estado del jugador | 200 / 401 |
+| `GET`  | `/juego/casos/{codigo}` | Enunciado, opciones y gráfica sugerida | 200 / 401 / 404 / 409 |
+| `POST` | `/juego/casos/{codigo}/responder` | Corrige en el servidor; XP solo la primera vez (menos cuantos más intentos) | 200 / 401 / 404 / 409 / 422 |
+| `GET`  | `/juego/progreso` | XP, nivel, racha, insignias | 200 / 401 |
+| `GET`  | `/juego/ranking?periodo=semana\|siempre` | Clasificación de jugadores por XP | 200 / 401 / 422 |
+| `GET`  | `/juego/jugadores` | Progreso de todos los jugadores (docente, admin) | 200 / 401 / 403 |

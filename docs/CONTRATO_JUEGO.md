@@ -100,6 +100,8 @@ dificultad, no bloquea).
 - `grafica`: ruta de la estadística que ayuda, o `null`.
 - No incluye la respuesta ni la pista.
 - `404 {"codigo": "caso_no_encontrado"}` si el código no existe.
+- `409 {"codigo": "sin_datos"}` si no hay estudiantes (los casos no tienen
+  respuesta). Lo mismo en `responder`.
 
 ### 3.4 `POST /juego/casos/{codigo}/responder`
 
@@ -143,6 +145,7 @@ Incorrecta:
 | Error | Cuándo |
 |---|---|
 | `404 caso_no_encontrado` | Código desconocido |
+| `409 sin_datos` | No hay estudiantes |
 | `422 {"codigo": "respuesta_invalida", "mensaje", "opciones": [valor, …]}` | La respuesta no es una de las opciones actuales |
 | `422` estándar | Cuerpo inválido o campos extra |
 

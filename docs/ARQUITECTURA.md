@@ -1,13 +1,14 @@
 # Arquitectura de `api-tienda`
 
 > Estado verificado contra el código. Primera verificación: **2026-10-11**
-> (commit `52ddbf5`, §10). Última actualización: **Fase 4 (Laboratorio),
-> parte backend** del plan de `PROPUESTA_ESTUDIANTES_2.0.md`. Si el código
+> (commit `52ddbf5`, §10). Última actualización: **Fase 5 (casos y
+> progresión), parte backend** del plan de `PROPUESTA_ESTUDIANTES_2.0.md`. Si el código
 > cambia, este documento se actualiza en el mismo commit.
 >
 > Los contratos con la app Flutter están aparte:
-> [CONTRATO_AUTH.md](CONTRATO_AUTH.md) (v1.1) y
-> [CONTRATO_LABORATORIO.md](CONTRATO_LABORATORIO.md) (v1).
+> [CONTRATO_AUTH.md](CONTRATO_AUTH.md) (v1.1),
+> [CONTRATO_LABORATORIO.md](CONTRATO_LABORATORIO.md) (v1.1) y
+> [CONTRATO_JUEGO.md](CONTRATO_JUEGO.md) (v1).
 
 ---
 
@@ -41,12 +42,14 @@ api-tienda/
 │   ├── main.py            # FastAPI, handler de 422 sin "input", límites, CORS, cabeceras de seguridad, routers, GET /
 │   ├── config.py          # Settings: DB_*, DB_SSL_CA, CORS_ORIGINS, CLAVE_TOKENS, IP_CLIENTE, ARGON2_*
 │   ├── database.py        # crear_engine(), collation por evento, NAMING_CONVENTION, Base, get_db()
-│   ├── models.py          # Estudiante, Usuario, SesionRefresh
+│   ├── models.py          # Estudiante, Usuario, SesionRefresh, IntentoCaso, Rescate, InsigniaObtenida
 │   ├── schemas.py         # Esquemas Pydantic (estudiantes, predicción, auth)
 │   ├── ml.py              # Variables, pipeline y utilidades del modelo (compartido script/API)
 │   ├── modelo_juego.py    # Modelo del juego: inferencia y explicación exacta desde el JSON
 │   ├── modelo_juego.json  # Logística congelada (versión 2026-10-11), versionada en git
 │   ├── laboratorio.py     # Reglas del rescate: intervenciones, óptimo, estrellas
+│   ├── casos.py           # Catálogo de casos (Modo 2): opciones y respuestas desde los datos
+│   ├── progreso.py        # XP, niveles, racha (UTC−5), insignias y ranking
 │   ├── reloj.py           # reloj.ahora(): UTC sin zona, sustituible en tests
 │   ├── seguridad.py       # Argon2id, PASETO v4.local, refresh opacos (sin BD)
 │   ├── sesiones.py        # Familias de refresh en la BD: abrir, rotar, revocar, listar
@@ -59,8 +62,9 @@ api-tienda/
 │       ├── estudiantes.py # escrituras solo admin
 │       ├── estadisticas.py
 │       ├── prediccion.py  # CargadorModelo (build) + explicación y lote (modelo del juego)
-│       └── laboratorio.py # /laboratorio (con sesión)
-├── alembic/versions/      # 6 migraciones (§3.2)
+│       ├── laboratorio.py # /laboratorio (con sesión; guarda rescates y da XP)
+│       └── juego.py       # /juego (con sesión)
+├── alembic/versions/      # 7 migraciones (§3.2)
 ├── scripts/
 │   ├── seed_estudiantes.py  # Faker("es_CO"), semilla 42, --cantidad, --reset
 │   ├── graficas.py          # PNG por estadística (llama a la API con httpx2)
@@ -68,7 +72,7 @@ api-tienda/
 │   ├── congelar_modelo_juego.py  # regenera app/modelo_juego.json (con commit)
 │   ├── generar_clave.py     # valor para CLAVE_TOKENS
 │   └── crear_usuario.py     # alias + --rol; única forma de crear el primer admin
-├── tests/                 # 353 tests (§8)
+├── tests/                 # 415 tests (§8)
 ├── docs/                  # ARQUITECTURA.md (este archivo), CONTRATO_AUTH.md, CONTRATO_LABORATORIO.md
 ├── .github/workflows/tests.yml  # CI: pytest con mariadb:lts y mysql:8.4
 ├── alembic.ini, pytest.ini, render.yaml, .python-version (3.14.7)
@@ -131,6 +135,15 @@ escriben y comparan con `reloj.ahora()`; al cliente se le envían con `Z`.
 | `revocado_en`, `motivo_revocacion` | NULL | Van juntos (CHECK); motivo IN (`logout`, `logout_todo`, `reuso`, `password`, `desactivada`) |
 | `user_agent` | VARCHAR(200) NULL | |
 
+**Juego (Fase 5).** No hay tabla de «progreso»: XP, nivel, racha e insignias
+se calculan a partir de estas filas, así no pueden desincronizarse.
+
+| Tabla | Columnas | Restricciones |
+|---|---|---|
+| `intentos_caso` | `id` BIGINT, `usuario_id`, `caso` VARCHAR(40), `respuesta`, `correcto`, `xp`, `creado_en` | FK usuario CASCADE; CHECK `xp >= 0`; índice (`usuario_id`, `caso`) |
+| `rescates` | `id` BIGINT, `usuario_id`, `estudiante_id` NULL, copia de `horas_estudio_inicial` y `asistencia_inicial`, `estudio`, `tutoria`, `fichas`, `probabilidad_inicial/final` NUMERIC(5,4), `logrado`, `estrellas`, `xp`, `version_modelo`, `creado_en` | FK usuario CASCADE; FK estudiante **SET NULL** (el historial sobrevive); CHECK de estrellas 0–3, fichas 0–5, probabilidades 0–1, xp ≥ 0 |
+| `usuarios_insignias` | `usuario_id`, `codigo`, `obtenida_en` | PK (`usuario_id`, `codigo`): una insignia no se repite. El catálogo vive en `app/progreso.py` |
+
 No hay columna de sucesor: el sucesor de un refresh es `HMAC(clave, refresh)`
 y se encuentra por su hash. Las familias que pasan sus 30 días se borran al
 abrir cualquier sesión (no hay cron en Render free).
@@ -148,7 +161,8 @@ el esquema de los modelos.
 | `81a56be44550` | Crea `estudiantes` con 5 CHECK |
 | `1d65ce94be3f` | Collation `utf8mb4_unicode_ci` en la base y las tablas; downgrade no-op |
 | `f9047f24dd9b` | **Borra `productos` y `categorias`**; el downgrade las recrea vacías |
-| `5527590d242a` (head) | Crea `usuarios` y `sesiones_refresh` |
+| `5527590d242a` | Crea `usuarios` y `sesiones_refresh` |
+| `7661ab474407` (head) | Crea `intentos_caso`, `rescates` y `usuarios_insignias` (Fase 5) |
 
 ### 3.3 Collation y conexión
 
@@ -159,6 +173,12 @@ el esquema de los modelos.
   y nombre de host.
 - `pool_pre_ping=True`; `SessionLocal(autoflush=False)`; `get_db()` abre y
   cierra una sesión por petición.
+- **Aislamiento `READ COMMITTED`** (en `crear_engine`, para app, Alembic y
+  tests). Con el REPEATABLE READ por defecto, una transacción lee la «foto» de
+  su primera lectura aunque después espere un `FOR UPDATE`: dos respuestas
+  simultáneas del mismo jugador daban la XP dos veces o un 500 por clave
+  duplicada (comprobado en MySQL 8.4; MariaDB 11.6+ aborta con el error 1020).
+  Login, refresh y XP bloquean antes la fila que decide.
 
 ---
 
@@ -251,7 +271,27 @@ Detalle en CONTRATO_LABORATORIO.md. Todas las respuestas llevan `modelo`
 | GET | `/laboratorio/casos/{id}` | con sesión | `CasoOut` (sin promedio); 404 `caso_no_disponible` |
 | POST | `/laboratorio/casos/{id}/resolver` | con sesión | `ResultadoRescateOut` (estrellas calculadas en el servidor, solución óptima); 404, 422 `presupuesto_superado` |
 
-### 4.7 Esquemas (Pydantic 2.14)
+### 4.7 Juego (`/juego`, con sesión)
+
+Detalle en CONTRATO_JUEGO.md.
+
+| Método | Ruta | Acceso | Respuesta |
+|---|---|---|---|
+| GET | `/juego/casos` | con sesión | 9 casos con `resuelto`, `intentos`, `xp_ganada` |
+| GET | `/juego/casos/{codigo}` | con sesión | Enunciado, opciones, gráfica; 404 `caso_no_encontrado`, 409 `sin_datos` |
+| POST | `/juego/casos/{codigo}/responder` | con sesión | Corrección, `dato`, explicación o pista, XP, insignias nuevas, progreso; 422 `respuesta_invalida` |
+| GET | `/juego/progreso` | con sesión | XP, nivel, siguiente nivel, racha, contadores, catálogo de insignias |
+| GET | `/juego/ranking?periodo=semana\|siempre` | con sesión | Top 20 de jugadores activos por XP, con empates y la posición propia |
+| GET | `/juego/jugadores` | docente, admin | Progreso de todos los jugadores |
+
+Reglas: casos 20/40/60 XP por nivel × 1, 0,5 o 0,25 según el intento (solo la
+primera vez); rescates 10 XP por estrella que mejore el récord del jugador con
+ese estudiante; niveles en 0, 150, 400 y 800 XP; racha en hora de Colombia
+(UTC−5 fijo, sin depender de la base de zonas horarias); 7 insignias. Las
+respuestas y las XP las decide el servidor, y las escrituras de XP van
+precedidas de un `FOR UPDATE` sobre el jugador.
+
+### 4.8 Esquemas (Pydantic 2.14)
 
 | Esquema | Campos | Notas |
 |---|---|---|
@@ -305,6 +345,8 @@ Detalle en CONTRATO_LABORATORIO.md. Todas las respuestas llevan `modelo`
 | Secretos en la BD y en respuestas (hash, refresh, eco en 422) | `test_auth.py`, `test_refresh.py`, `test_usuarios.py` |
 | Límite por IP (aula de 40 alumnos, fallos por IP sin calcular hash) y falsificación de `X-Forwarded-For` | `test_limites.py` |
 | Token inválido en endpoints públicos (se ignora) | `test_auth.py` |
+| Estrellas, XP o «correcto» enviados por el cliente | `test_laboratorio.py`, `test_juego.py` (422) |
+| Dos respuestas simultáneas del mismo jugador (XP doble) | `test_juego.py::test_dos_respuestas_simultaneas_no_dan_la_xp_dos_veces` |
 
 ---
 
@@ -386,8 +428,8 @@ ningún valor** (`hide_input_in_errors`): antes, pydantic imprimía el valor
 inválido o, si faltaba una variable, el resto de variables, y eso acababa en
 los logs de Render.
 
-**Tests** (353; `pytest -q` en ~11 s; también pasan contra MySQL 8.4): auth 67,
-estudiantes 42, laboratorio 35, límites 34, seguridad 33, refresh 33,
+**Tests** (415; `pytest -q` en ~12 s; también pasan contra MySQL 8.4): auth 67,
+juego 60, estudiantes 42, laboratorio 35, límites 36, seguridad 33, refresh 33,
 usuarios 28, predicción 22, estadísticas 20, predicción del juego 15, modelo de
 usuarios 14, modelo del juego 9, migraciones 1.
 

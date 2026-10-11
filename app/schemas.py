@@ -301,3 +301,127 @@ class ResultadoRescateOut(BaseModel):
     solucion_optima: SolucionOut
     explicacion_final: ExplicacionOut
     aviso: str
+    # v1.1 (Fase 5): progreso del jugador.
+    xp_ganada: int
+    record_estrellas: int = Field(ge=0, le=3)
+    insignias_nuevas: list["InsigniaOut"]
+    progreso: "ProgresoResumenOut"
+
+
+# ---------- Juego: casos, progreso, insignias y ranking (docs/CONTRATO_JUEGO.md) ----------
+
+Nivel = Literal["novato", "investigador", "experto"]
+
+
+class InsigniaOut(BaseModel):
+    codigo: str
+    nombre: str
+    descripcion: str
+    obtenida_en: FechaUTC | None
+
+
+class ProgresoResumenOut(BaseModel):
+    xp: int
+    nivel: str
+    subio_de_nivel: bool
+
+
+class CasoResumenJuegoOut(BaseModel):
+    codigo: str
+    nivel: Nivel
+    titulo: str
+    xp: int
+    resuelto: bool
+    intentos: int
+    xp_ganada: int
+
+
+class CasosJuegoOut(BaseModel):
+    casos: list[CasoResumenJuegoOut]
+
+
+class OpcionOut(BaseModel):
+    valor: str
+    texto: str
+
+
+class CasoJuegoOut(BaseModel):
+    codigo: str
+    nivel: Nivel
+    titulo: str
+    enunciado: str
+    opciones: list[OpcionOut]
+    grafica: str | None
+    xp: int
+    resuelto: bool
+    intentos: int
+
+
+class RespuestaEntrada(Entrada):
+    respuesta: str = Field(max_length=100)
+
+
+class RespuestaOut(BaseModel):
+    correcto: bool
+    xp_ganada: int
+    dato: str | None
+    explicacion: str | None
+    pista: str | None
+    intento: int
+    insignias_nuevas: list[InsigniaOut]
+    progreso: ProgresoResumenOut
+
+
+class NivelOut(BaseModel):
+    numero: int
+    nombre: str
+    xp_desde: int
+
+
+class ProgresoOut(BaseModel):
+    alias: str
+    xp: int
+    nivel: NivelOut
+    siguiente_nivel: NivelOut | None
+    racha_dias: int
+    casos_resueltos: int
+    casos_total: int
+    rescates_logrados: int
+    estrellas_totales: int
+    insignias: list[InsigniaOut]
+
+
+class PuestoOut(BaseModel):
+    posicion: int
+    alias: str
+    xp: int
+    nivel: str
+    soy_yo: bool
+
+
+class MiPuestoOut(BaseModel):
+    posicion: int
+    xp: int
+
+
+class RankingOut(BaseModel):
+    periodo: Literal["semana", "siempre"]
+    desde: FechaUTC | None
+    jugadores: list[PuestoOut]
+    yo: MiPuestoOut | None
+
+
+class JugadorOut(BaseModel):
+    id: int
+    alias: str
+    activo: bool
+    xp: int
+    nivel: str
+    casos_resueltos: int
+    rescates_logrados: int
+    insignias: int
+    ultima_actividad: FechaUTC | None
+
+
+# ResultadoRescateOut (Laboratorio) usa InsigniaOut y ProgresoResumenOut, definidos después.
+ResultadoRescateOut.model_rebuild()
