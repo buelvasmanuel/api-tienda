@@ -6,14 +6,15 @@ modelos/riesgo.joblib, con sus métricas en modelos/metricas.json.
 
 Uso (desde la raíz del proyecto):
     python -m scripts.entrenar_modelo
+    python -m scripts.entrenar_modelo --sin-graficas   # sin matplotlib (servidor)
 """
 
+import argparse
 import json
 import sys
 from datetime import datetime
 
 import joblib
-import matplotlib
 import pandas as pd
 import sklearn
 from sklearn.metrics import (
@@ -43,9 +44,6 @@ from app.ml import (
     preparar_datos,
 )
 from app.models import Estudiante
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
 
 COMPITEN = ["logistica", "arbol"]  # candidatos a "mejor modelo"
 SOLO_COMPARACION = ["logistica_sin_balancear"]  # se muestra, pero no compite
@@ -90,7 +88,19 @@ def titulo(texto: str) -> None:
     print(f"\n{'=' * 70}\n{texto}\n{'=' * 70}")
 
 
+def _pyplot():
+    """matplotlib se importa solo al graficar: es dependencia de desarrollo y
+    en el servidor (Render) se entrena con --sin-graficas sin tenerla."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    return plt
+
+
 def graficar_matrices(resultados: dict, ruta) -> None:
+    plt = _pyplot()
     fig, ejes = plt.subplots(1, len(resultados), figsize=(5 * len(resultados), 4.5), layout="constrained")
     for eje, (tipo, r) in zip(ejes, resultados.items()):
         ConfusionMatrixDisplay(
@@ -106,6 +116,7 @@ def graficar_matrices(resultados: dict, ruta) -> None:
 
 
 def graficar_importancias(series: dict, ruta) -> None:
+    plt = _pyplot()
     fig, ejes = plt.subplots(1, len(series), figsize=(7 * len(series), 5.5), layout="constrained")
     for eje, (tipo, serie) in zip(ejes, series.items()):
         serie = serie.iloc[::-1]  # la más importante arriba
@@ -124,6 +135,11 @@ def graficar_importancias(series: dict, ruta) -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Entrena el modelo de riesgo académico.")
+    parser.add_argument("--sin-graficas", action="store_true",
+                        help="no genera las gráficas (no necesita matplotlib)")
+    args = parser.parse_args()
+
     estudiantes = leer_estudiantes()
     if len(estudiantes) < 50:
         print(f"Solo hay {len(estudiantes)} estudiantes en '{engine.url.database}'. "
@@ -210,13 +226,15 @@ def main() -> int:
     }
     RUTA_METRICAS.write_text(json.dumps(metricas, ensure_ascii=False, indent=2))
 
-    DIR_GRAFICAS.mkdir(exist_ok=True)
-    graficar_matrices(resultados, DIR_GRAFICAS / "matriz_confusion.png")
-    graficar_importancias(series, DIR_GRAFICAS / "importancia_variables.png")
+    guardados = [RUTA_MODELO, RUTA_METRICAS]
+    if not args.sin_graficas:
+        DIR_GRAFICAS.mkdir(exist_ok=True)
+        graficar_matrices(resultados, DIR_GRAFICAS / "matriz_confusion.png")
+        graficar_importancias(series, DIR_GRAFICAS / "importancia_variables.png")
+        guardados += [DIR_GRAFICAS / "matriz_confusion.png", DIR_GRAFICAS / "importancia_variables.png"]
 
     titulo("GUARDADO")
-    for ruta in (RUTA_MODELO, RUTA_METRICAS, DIR_GRAFICAS / "matriz_confusion.png",
-                 DIR_GRAFICAS / "importancia_variables.png"):
+    for ruta in guardados:
         print(f"  {ruta.relative_to(RAIZ)}")
     return 0
 

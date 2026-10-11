@@ -1,12 +1,12 @@
 from logging.config import fileConfig
 
-from sqlalchemy import create_engine, pool
+from sqlalchemy import pool
 
 from alembic import context
 
 from app import models  # noqa: F401  (registra los modelos en Base.metadata)
 from app.config import settings
-from app.database import Base
+from app.database import Base, crear_engine
 
 # Objeto de configuración de Alembic (lee alembic.ini).
 config = context.config
@@ -59,7 +59,7 @@ def run_migrations_online() -> None:
         _run_with_connection(connection)
         return
 
-    connectable = create_engine(DATABASE_URL, poolclass=pool.NullPool)
+    connectable = crear_engine(DATABASE_URL, poolclass=pool.NullPool)
     with connectable.connect() as connection:
         _run_with_connection(connection)
 

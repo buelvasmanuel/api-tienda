@@ -11,12 +11,11 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.engine import Connection, make_url
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.database import get_db
+from app.database import crear_engine, get_db
 from app.main import app
 
 # Misma URL que la app (mismas credenciales del .env), pero otra base.
@@ -39,7 +38,7 @@ def _alembic(connection: Connection, accion: str, revision: str) -> None:
 @pytest.fixture(scope="session")
 def engine():
     """Engine de tienda_test con el esquema migrado (una vez por sesión)."""
-    engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
+    engine = crear_engine(TEST_DATABASE_URL, pool_pre_ping=True)
     with engine.begin() as conn:
         assert conn.exec_driver_sql("SELECT DATABASE()").scalar() == "tienda_test"
         _alembic(conn, "upgrade", "head")

@@ -1,16 +1,18 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.config import settings
 from app.routers import categorias, estadisticas, estudiantes, prediccion, productos
 
 # Las tablas se crean y modifican con migraciones de Alembic (alembic upgrade head).
 app = FastAPI(title="API Tienda")
 
-# SOLO DESARROLLO: "*" permite peticiones desde cualquier origen (p. ej. Flutter
-# Web en localhost:XXXX). En producción, lista aquí los orígenes permitidos.
+# Orígenes de CORS_ORIGINS (ver app/config.py). En local vale "*" (cualquier
+# origen, p. ej. Flutter Web en localhost:XXXX); en producción, solo el dominio
+# de la app web. Las apps nativas (APK) no usan CORS.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

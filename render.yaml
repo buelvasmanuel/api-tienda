@@ -1,0 +1,34 @@
+# Blueprint de Render: https://render.com/docs/blueprint-spec
+# La versión de Python sale de .python-version.
+services:
+  - type: web
+    name: api-tienda
+    runtime: python
+    plan: free
+    region: oregon  # cerca de la región de Aiven para que cada consulta tarde poco
+    # Render no guarda archivos entre reinicios, pero sí lo que se genera en el
+    # build: el modelo se entrena aquí, con los estudiantes de Aiven y con la
+    # misma versión de scikit-learn que lo cargará. Para reentrenar: Manual Deploy.
+    buildCommand: >-
+      pip install -r requirements.txt &&
+      alembic upgrade head &&
+      python -m scripts.entrenar_modelo --sin-graficas
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      # sync: false → Render pide el valor en la web; nunca se guarda en el repo.
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_SSL_CA  # contenido del ca.pem de Aiven, pegado tal cual
+        sync: false
+      # Origen = esquema + dominio, sin la ruta /app-estudiantes/.
+      - key: CORS_ORIGINS
+        value: https://buelvasmanuel.github.io

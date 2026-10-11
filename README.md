@@ -247,9 +247,9 @@ python -m scripts.graficas --url http://127.0.0.1:8001   # otra URL
   (`sudo ufw allow 8000/tcp`, o con firewalld:
   `sudo firewall-cmd --add-port=8000/tcp`).
 - **CORS** solo afecta a **Flutter Web** (lo aplican los navegadores, no las
-  apps nativas). La API ya permite cualquier origen (`allow_origins=["*"]` en
-  `app/main.py`), **solo para desarrollo**: en producción hay que listar los
-  orígenes permitidos.
+  apps nativas). Los orígenes permitidos salen de la variable `CORS_ORIGINS`
+  (separados por comas). Si no se define, vale `*` (cualquier origen), lo
+  cómodo en desarrollo. En producción se pone solo el dominio de la app web.
 
 ## Minería de datos: riesgo académico
 
@@ -345,6 +345,51 @@ acabar en una materia perdida o en deserción, mientras que alertar de más
 > ti. Además, un `.joblib` solo está garantizado con la misma versión de
 > scikit-learn con la que se entrenó (`version_sklearn` en `metricas.json`).
 
+## Despliegue (Aiven + Render)
+
+En producción la base es un **MySQL 8 gratis en [Aiven](https://aiven.io)** y la
+API corre en el **plan free de [Render](https://render.com)**, desplegada desde
+GitHub con el Blueprint `render.yaml`. Todo se configura con variables de
+entorno, así que en local no cambia nada:
+
+| Variable       | Local (`.env`)        | Render                                    |
+|----------------|-----------------------|-------------------------------------------|
+| `DB_*`         | MariaDB local         | Datos de conexión de Aiven                |
+| `DB_SSL_CA`    | vacía (sin SSL)       | Contenido del `ca.pem` de Aiven (o una ruta al archivo) |
+| `CORS_ORIGINS` | vacía (`*`)           | `https://buelvasmanuel.github.io`         |
+
+- **Origen de CORS** = esquema + dominio (+ puerto), **sin ruta**: la app de
+  `https://buelvasmanuel.github.io/app-estudiantes/` envía la cabecera
+  `Origin: https://buelvasmanuel.github.io`.
+- **Collation:** la conexión y las tablas usan `utf8mb4_unicode_ci` en los dos
+  motores (migración `1d65ce94be3f`). Sin esto, MySQL 8 usaría
+  `utf8mb4_0900_ai_ci`, que compara distinto (no ignora espacios finales).
+- **El modelo se entrena en el build.** Render no guarda los archivos que se
+  escriben mientras la API corre (se pierden al reiniciar), pero sí lo
+  generado en el build. Por eso el build hace `pip install` →
+  `alembic upgrade head` → `python -m scripts.entrenar_modelo --sin-graficas`.
+  Así el modelo usa la misma versión de scikit-learn con la que se carga, y no
+  hay binarios en el repo. Consecuencias:
+  - Aiven tiene que tener los estudiantes **antes** del primer deploy (si hay
+    menos de 50, el entrenamiento falla y Render mantiene el deploy anterior).
+  - Para reentrenar con datos nuevos: *Manual Deploy* en Render.
+- **Plan free:** la API se duerme tras ~15 min sin peticiones; la primera
+  petición después tarda ~1 minuto en responder.
+
+### Cargar datos en Aiven desde tu máquina
+
+Crea `.env.aiven` (está en `.gitignore`, igual que los `*.pem`) con los datos
+de Aiven y `DB_SSL_CA=ca.pem` (ruta al certificado descargado). Las variables
+de entorno tienen prioridad sobre `.env`, así que basta con exportarlas:
+
+```bash
+set -a; source .env.aiven; set +a     # solo en esta terminal
+alembic upgrade head
+python -m scripts.seed_estudiantes    # 300 estudiantes
+```
+
+Cierra esa terminal al acabar: en otra nueva vuelves a usar tu `.env` local.
+
 ## Estructura del proyecto
 
 ```
@@ -379,6 +424,8 @@ api-tienda/
 │   └── test_prediccion.py
 ├── pytest.ini           # Configuración de pytest
 ├── .env.example         # Plantilla de variables de entorno
+├── render.yaml          # Despliegue en Render (build, start y variables)
+├── .python-version      # Versión de Python que usa Render
 ├── requirements.txt     # Dependencias de la app
 └── requirements-dev.txt # Dependencias de desarrollo (tests, seed, gráficas)
 ```

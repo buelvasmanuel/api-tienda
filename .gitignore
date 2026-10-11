@@ -5,3 +5,7 @@ __pycache__/
 .pytest_cache/
 graficas/
 modelos/
+# Credenciales de otros entornos (p. ej. .env.aiven) y certificados
+.env.*
+!.env.example
+*.pem

@@ -146,9 +146,11 @@ def test_eliminar_estudiante_devuelve_204(client):
     ids=lambda c: next(iter(c)),
 )
 def test_la_base_rechaza_valores_fuera_de_rango(db_session, cambios):
-    # Saltándonos la API (y Pydantic), el CHECK de MariaDB sigue protegiendo los datos.
+    # Saltándonos la API (y Pydantic), el CHECK de la base sigue protegiendo los datos.
     datos = ESTUDIANTE | {"promedio": 4.1} | cambios
     db_session.add(Estudiante(**datos))
 
-    with pytest.raises(DBAPIError, match="CONSTRAINT `ck_estudiantes_"):
+    # MariaDB: "CONSTRAINT `ck_estudiantes_edad` failed ..."
+    # MySQL 8: "Check constraint 'ck_estudiantes_edad' is violated."
+    with pytest.raises(DBAPIError, match=f"ck_estudiantes_{next(iter(cambios))}"):
         db_session.flush()
