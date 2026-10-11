@@ -89,7 +89,7 @@ Por qué funciona:
 #### 🗺️ Modo 1 — El Mapa del Campus (exploración)
 - Vista **isométrica 2.5D** (como los juegos de construir ciudades), hecha con Flame.
 - **Edificio = carrera.** Altura = número de estudiantes. Color de las ventanas = proporción en riesgo (verde → ámbar → rojo).
-- **Barrios = ciudades de origen** o **pisos = semestres** (🟡 decidir cuál dimensión se ve mejor).
+- **Pisos = semestres** (decidido el 11/10): cada ventana es un estudiante, coloreada por su riesgo.
 - Tocar un edificio → se abre su **expediente**: estadísticas de esa carrera, con las gráficas de `fl_chart` existentes integradas como "fichas" del caso.
 - Es la "gráfica avanzada", pero cada elemento visual **codifica un dato real**.
 
@@ -272,16 +272,33 @@ Cada fase termina con tests en verde, `flutter analyze`/`pytest` limpios y commi
 
 **Recordatorio de despliegue:** Render no tiene auto-deploy (repo conectado como público) → `Manual Deploy` después de cada push de la API. Las migraciones se aplican solas en el build.
 
+### Fase 7 — Opcionales (si da tiempo)
+
+Decidido el 11/10: estas piezas **no están descartadas**, solo aplazadas. Entran
+cuando las fases 1-6 estén cerradas (tests en verde, desplegadas) y en este
+orden aproximado de valor/esfuerzo. Cada una se cierra igual que las demás
+fases: tests, docs y commit.
+
+| Pieza | Qué aportaría | De qué depende | Por qué quedó para después |
+|---|---|---|---|
+| **SHAP como librería** | Explicaciones de cualquier modelo (también del árbol), gráficos estándar (waterfall, beeswarm) y una referencia externa reconocida. | Que el Laboratorio (Fase 4) ya muestre la explicación propia. `shap` 0.53 se instala en Python 3.14, pero pesa y consume RAM (Render free: 512 MB). | El modelo del juego está congelado como regresión logística, donde la contribución exacta es `coef × (x − media)`: el cálculo propio es exacto, ligero y más didáctico. Mientras tanto, `shap` se usa **solo en desarrollo**, para validar ese cálculo en los tests. |
+| **freezed + json_serializable** | Modelos inmutables con `copyWith`, igualdad y `fromJson/toJson` generados: menos parseo a mano según crecen los modelos (usuario, progreso, casos). | Riverpod + go_router ya asentados (Fase 2) y `build_runner` en el flujo de trabajo y en el CI de la web. | El parseo manual actual funciona y está probado; añadir generación de código a mitad de semana suma pasos de build sin cambiar lo que ve el jugador. |
+| **structlog** | Logs en JSON con contexto (usuario, ruta, id de petición): filtrar en Render sin adivinar. | Decidir qué campos se registran (sin datos personales ni tokens) y, si se quiere, un id de petición por middleware. | El logger estándar `app.auth` ya registra los eventos de seguridad (bloqueos, reuso de tokens, límites). Con un solo proceso y poco tráfico, el JSON aporta poco todavía. |
+| **Redis** (Upstash o Render Key Value) | Caché de estadísticas, contadores del límite por IP que sobreviven a reinicios y se comparten entre procesos, *sorted sets* para el ranking. | Un servicio externo más (cuenta, credenciales, otra región que añade latencia) y que haya más de un proceso o tráfico que lo justifique. | Con un solo proceso y pocos jugadores, el ranking y los contadores caben en MySQL o en memoria. Es una pieza más que puede fallar sin mejorar la experiencia de la clase. |
+| **WebSockets** | Duelo de cartas en tiempo real contra otro jugador y ranking en vivo. | El Duelo de cartas (Modo 4) contra la máquina terminado; autenticación del WebSocket con el access token; decidir qué hacer cuando Render duerme el servicio o se redespliega (las conexiones se cortan). | Render free se duerme y corta conexiones; un único proceso guarda el estado de las partidas en memoria. Es el único modo que exige tiempo real y es opcional en el propio diseño. `websockets` ya viene instalado con uvicorn. |
+| **Cookies `Partitioned` (CHIPS) para la web** | Que la web conserve la sesión al recargar la página (hoy el refresh vive solo en memoria) sin exponerlo a JavaScript (`HttpOnly`). | `SameSite=None; Secure; Partitioned`, `allow_credentials` en CORS, protección CSRF (cabecera propia) y comprobar el comportamiento real en Chrome, Firefox y Safari, porque `github.io` y `onrender.com` son sitios distintos. Alternativa robusta: dominio propio para app y API. | Es un experimento con resultado incierto por navegador. El contrato v1 (refresh en el cuerpo) funciona en todas las plataformas; esto se añade como un modo opcional sin romperlo. |
+| **Passkeys / WebAuthn** | Inicio de sesión sin contraseña con huella, cara o PIN; inmune al phishing y a filtraciones de contraseñas. | Identificador del sitio (RP ID) = dominio de la web; para la app Android, `assetlinks.json` servido en ese dominio (en `github.io` solo es posible con un repositorio de página de usuario); librería de servidor (`webauthn`) y plugin en Flutter. | Es la pieza más compleja (configuración por plataforma y dominio) y la autenticación actual ya es sólida. Mejor como experimento final, conviviendo con la contraseña. |
+
 ---
 
 ## 7. Decisiones abiertas 🟡
 
 1. **Nombre y tono del juego:** ¿"Campus Detective" u otro? ¿Mascota búho u otra?
-2. **Dimensión del mapa:** ¿barrios = ciudades o pisos = semestres?
-3. **Riverpod o Bloc.**
-4. **¿Tiempo real (WebSockets) entra esta semana o queda para después?**
-5. **¿Redis entra o se simula el ranking con SQL?** (con 300 estudiantes y pocos jugadores, SQL basta).
-6. **¿Se eliminan `Producto` y `Categoria`** (legado de la primera actividad) o se dejan?
+2. ✅ **Dimensión del mapa** (11/10): edificio = carrera, **pisos = semestres**, cada ventana = un estudiante coloreada por su riesgo.
+3. ✅ **Riverpod** (11/10; adoptado en `app_estudiantes`).
+4. ✅ **WebSockets: después** (11/10; ver Fase 7).
+5. ✅ **Redis: después**; el ranking se hace con SQL (11/10; ver Fase 7).
+6. ✅ **`Producto` y `Categoria` eliminados** (11/10; migración `f9047f24dd9b` en `api-tienda`).
 
 ---
 
