@@ -170,7 +170,7 @@ def test_los_percentiles_son_sobre_todos_los_estudiantes(jugador, estudiantes, d
 
 
 def test_modo_desconocido(jugador, estudiantes):
-    assert jugador.post("/duelos", json={"modo": "jugador"}).status_code == 422
+    assert jugador.post("/duelos", json={"modo": "torneo"}).status_code == 422
 
 
 def test_un_duelo_ajeno_no_se_ve(jugador, estudiantes, client, crear_usuario):
@@ -208,7 +208,7 @@ def test_partida_completa(jugador, mazos_fijos):
     rival = sum(r["ganador"] == "rival" for r in final["rondas"])
     assert final["marcador"] == {"yo": yo, "rival": rival}
     assert final["resultado"] == ("victoria" if yo > rival else "derrota" if rival > yo else "empate")
-    assert final["xp_ganada"] == reglas.XP_POR_RESULTADO[final["resultado"]]
+    assert final["xp_ganada"] == reglas.XP_POR_RESULTADO["maquina"][final["resultado"]]
     assert final["progreso"]["xp"] == final["xp_ganada"]
 
 
@@ -424,7 +424,7 @@ def test_dos_envios_simultaneos_de_la_jugada_final(engine):
             final = db.get(Duelo, duelo_id)
             assert len(final.rondas) == 5
             assert final.puntos_a + final.puntos_b <= 5
-            assert final.xp_a == reglas.XP_POR_RESULTADO[final.resultado_a]
+            assert final.xp_a == reglas.XP_POR_RESULTADO["maquina"][final.resultado_a]
         # Solo una de las dos respuestas trae el progreso (la que terminó el duelo).
         assert sum(r.progreso is not None for r in resultados) == 1
     finally:

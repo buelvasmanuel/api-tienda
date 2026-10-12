@@ -450,7 +450,8 @@ api-tienda/
 │   ├── laboratorio.py   # Reglas del rescate: intervenciones, solución óptima, estrellas
 │   ├── casos.py         # Catálogo de los 9 casos (respuestas calculadas con los datos)
 │   ├── progreso.py      # XP, niveles, racha, insignias y ranking
-│   ├── duelos.py        # Reglas del duelo de cartas
+│   ├── duelos.py        # Reglas del duelo de cartas (máquina y jugadores)
+│   ├── tiempo_real.py   # Avisos del WebSocket del duelo
 │   ├── reloj.py         # Hora UTC en un solo sitio (los tests la adelantan)
 │   ├── seguridad.py     # Argon2id, PASETO v4.local y refresh tokens (sin BD)
 │   ├── sesiones.py      # Familias de refresh tokens en la BD
@@ -495,7 +496,8 @@ api-tienda/
 │   ├── test_modelo_juego.py # Inferencia propia = scikit-learn; aportes = SHAP
 │   ├── test_laboratorio.py # Reglas del rescate y /laboratorio
 │   ├── test_juego.py    # Casos, XP, insignias, ranking, rescates guardados, concurrencia
-│   └── test_duelos.py   # Duelo: reglas, anti-trampa, reintentos, XP diaria, concurrencia
+│   ├── test_duelos.py   # Duelo: reglas, anti-trampa, reintentos, XP diaria, concurrencia
+│   └── test_duelos_jugadores.py # Duelo entre jugadores: emparejamiento, tiempo, WebSocket, concurrencia
 ├── docs/
 │   ├── ARQUITECTURA.md  # Estado verificado del backend y deuda técnica
 │   └── CONTRATO_AUTH.md # Contrato de autenticación con la app Flutter
@@ -647,8 +649,13 @@ cada jugada y calcula el resultado y la XP. Contrato completo en
 
 | Método | Ruta | Descripción | Respuesta |
 |--------|------|-------------|-----------|
-| `POST` | `/duelos` | Nuevo duelo contra la máquina (`{"modo": "maquina"}`) | 201 / 401 / 409 / 422 |
+| `POST` | `/duelos` | Nuevo duelo: `{"modo": "maquina"}` o `{"modo": "jugador"}` (busca rival; si no hay, espera 60 s) | 200 / 201 / 401 / 409 / 422 |
 | `GET`  | `/duelos` | Mis duelos (`?estado=en_juego\|terminado`) | 200 / 401 |
 | `GET`  | `/duelos/{id}` | Estado del duelo desde mi punto de vista | 200 / 401 / 404 |
 | `POST` | `/duelos/{id}/jugadas` | Juega la ronda (`{"ronda", "atributo"}`; idempotente) | 200 / 401 / 404 / 409 / 422 |
-| `POST` | `/duelos/{id}/abandonar` | Abandona (derrota sin XP) | 200 / 401 / 404 / 409 |
+| `POST` | `/duelos/{id}/abandonar` | Abandona (derrota sin XP) o cancela la búsqueda de rival | 200 / 401 / 404 / 409 |
+| `WS`   | `/duelos/{id}/ws` | Avisos en tiempo real del duelo entre jugadores (el primer mensaje autentica) | — |
+
+Contra otro jugador, cada turno dura 45 s y los vencimientos se aplican al
+consultar el duelo. El WebSocket solo avisa; las jugadas siguen por REST.
+Explicación en simple en [docs/CONTRATO_DUELO.md](docs/CONTRATO_DUELO.md) §8.

@@ -485,7 +485,8 @@ class CartaOut(BaseModel):
 class RondaOut(BaseModel):
     numero: int
     elegido_por: Lado
-    atributo: AtributoDuelo
+    atributo: AtributoDuelo | None = Field(description="null si la ronda se perdió por tiempo (v2)")
+    motivo: Literal["jugada", "tiempo"]
     mi_carta: CartaOut
     carta_rival: CartaOut
     ganador: Literal["yo", "rival", "empate"]
@@ -494,7 +495,7 @@ class RondaOut(BaseModel):
 
 class RivalOut(BaseModel):
     tipo: Literal["maquina", "jugador"]
-    alias: str
+    alias: str | None = Field(description="null mientras se busca rival")
 
 
 class MarcadorOut(BaseModel):
@@ -533,6 +534,7 @@ class DueloOut(BaseModel):
     duelos_con_xp_hoy: DuelosConXpOut
     atributos: list[AtributoOut]
     expira_turno_en: FechaUTC | None
+    rival_en_linea: bool | None = Field(description="Si el rival tiene abierto el WebSocket (null contra la máquina)")
     creado_en: FechaUTC
     actualizado_en: FechaUTC
     insignias_nuevas: list[InsigniaOut] = []
@@ -555,7 +557,7 @@ class DuelosOut(BaseModel):
 
 
 class NuevoDueloEntrada(Entrada):
-    modo: Literal["maquina"]  # la v2 añadirá "jugador"
+    modo: Literal["maquina", "jugador"]
 
 
 class JugadaEntrada(Entrada):

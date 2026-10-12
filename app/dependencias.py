@@ -28,6 +28,31 @@ class SesionActual:
     familia_id: str
 
 
+class AccesoDenegado(Exception):
+    """El token no da acceso. `estado` (401/403) y `codigo` son los del contrato."""
+
+    def __init__(self, estado: int, codigo: str, mensaje: str):
+        super().__init__(mensaje)
+        self.estado, self.codigo, self.mensaje = estado, codigo, mensaje
+
+
+def autenticar(db: Session, token: str) -> SesionActual:
+    """Comprueba un access token y carga su usuario. La usan las peticiones
+    REST (sesion_actual) y el WebSocket del duelo, que lo recibe en un mensaje."""
+    try:
+        access = seguridad.leer_access(token)
+    except seguridad.TokenInvalido as e:
+        raise AccesoDenegado(401, e.codigo, e.mensaje)
+    usuario = db.get(Usuario, access.usuario_id)
+    if usuario is None:
+        raise AccesoDenegado(401, "sesion_cerrada", "La sesión ya no es válida")
+    if not usuario.activo:
+        raise AccesoDenegado(403, "cuenta_desactivada", "La cuenta está desactivada")
+    if usuario.sesiones_validas_desde and access.emitido_en < usuario.sesiones_validas_desde:
+        raise AccesoDenegado(401, "sesion_cerrada", "La sesión se cerró; vuelve a iniciar sesión")
+    return SesionActual(usuario, access.familia_id)
+
+
 def sesion_actual(
     credenciales: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: Session = Depends(get_db),
@@ -35,18 +60,11 @@ def sesion_actual(
     if credenciales is None:
         raise no_autorizado("no_autenticado", "Falta el token de acceso")
     try:
-        access = seguridad.leer_access(credenciales.credentials)
-    except seguridad.TokenInvalido as e:
-        raise no_autorizado(e.codigo, e.mensaje)
-
-    usuario = db.get(Usuario, access.usuario_id)
-    if usuario is None:
-        raise no_autorizado("sesion_cerrada", "La sesión ya no es válida")
-    if not usuario.activo:
-        raise error(403, "cuenta_desactivada", "La cuenta está desactivada")
-    if usuario.sesiones_validas_desde and access.emitido_en < usuario.sesiones_validas_desde:
-        raise no_autorizado("sesion_cerrada", "La sesión se cerró; vuelve a iniciar sesión")
-    return SesionActual(usuario, access.familia_id)
+        return autenticar(db, credenciales.credentials)
+    except AccesoDenegado as e:
+        if e.estado == 401:
+            raise no_autorizado(e.codigo, e.mensaje)
+        raise error(e.estado, e.codigo, e.mensaje)
 
 
 def usuario_actual(sesion: SesionActual = Depends(sesion_actual)) -> Usuario:

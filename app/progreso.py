@@ -63,15 +63,18 @@ def inicio_semana() -> datetime:
 
 def _eventos_xp():
     """(usuario_id, xp, creado_en) de casos, rescates y duelos terminados juntos.
-    Un duelo cuenta para cada jugador humano, en el momento en que terminó
-    (los abandonados no cuentan: ni XP ni actividad)."""
+    Un duelo cuenta para cada jugador humano, en el momento en que terminó."""
     terminado = Duelo.estado == "terminado"
+    # Un abandono cuenta para el que gana con XP (por abandono del rival), nunca
+    # para el que abandona (tiene 0 XP).
+    abandonado = Duelo.estado == "abandonado"
     return union_all(
         select(IntentoCaso.usuario_id, IntentoCaso.xp, IntentoCaso.creado_en),
         select(Rescate.usuario_id, Rescate.xp, Rescate.creado_en),
         select(Duelo.jugador_a_id.label("usuario_id"), Duelo.xp_a.label("xp"),
-               Duelo.terminado_en.label("creado_en")).where(terminado),
-        select(Duelo.jugador_b_id, Duelo.xp_b, Duelo.terminado_en).where(terminado, Duelo.jugador_b_id.is_not(None)),
+               Duelo.terminado_en.label("creado_en")).where(or_(terminado, and_(abandonado, Duelo.xp_a > 0))),
+        select(Duelo.jugador_b_id, Duelo.xp_b, Duelo.terminado_en).where(
+            Duelo.jugador_b_id.is_not(None), or_(terminado, and_(abandonado, Duelo.xp_b > 0))),
     ).subquery()
 
 

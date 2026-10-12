@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 from sqlalchemy import Engine, MetaData, create_engine, event
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
@@ -53,6 +55,19 @@ NAMING_CONVENTION = {
 
 class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
+
+
+@contextmanager
+def sesion_breve():
+    """Sesión corta fuera de una petición HTTP (p. ej. dentro del WebSocket del
+    duelo): se abre para cada consulta y se cierra enseguida, para no retener
+    una conexión del pool mientras el WebSocket sigue abierto. Los tests la
+    sustituyen por su sesión de prueba."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 def get_db():

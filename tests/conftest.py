@@ -89,12 +89,25 @@ def db_session(engine):
 
 
 @pytest.fixture
-def client(db_session):
-    """TestClient cuyos endpoints reciben la sesión de test en vez de get_db()."""
+def client(db_session, monkeypatch):
+    """TestClient cuyos endpoints reciben la sesión de test en vez de get_db().
+    También la usa el WebSocket del duelo (database.sesion_breve)."""
+    from contextlib import contextmanager
+
+    from app import database
+    from app.tiempo_real import central
+
+    @contextmanager
+    def sesion_de_test():
+        yield db_session
+
     app.dependency_overrides[get_db] = lambda: db_session
+    monkeypatch.setattr(database, "sesion_breve", sesion_de_test)
+    central.vaciar()
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+    central.vaciar()
 
 
 

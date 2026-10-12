@@ -10,10 +10,11 @@ respuestas se dan siempre desde el punto de vista de quien pregunta ("yo" y
 
 import secrets
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app import reloj
@@ -23,9 +24,19 @@ from app.progreso import DESFASE_COLOMBIA, dia_colombia
 
 RONDAS = 5
 MINIMO_ESTUDIANTES = 2 * RONDAS
-XP_POR_RESULTADO = {"victoria": 30, "empate": 15, "derrota": 5}
-DUELOS_CON_XP_AL_DIA = 3
+XP_POR_RESULTADO = {  # por modo
+    "maquina": {"victoria": 30, "empate": 15, "derrota": 5},
+    "jugador": {"victoria": 40, "empate": 20, "derrota": 10},
+}
+DUELOS_CON_XP_AL_DIA = 3  # por modo
 ALIAS_MAQUINA = "Búho Máquina"
+
+# v2 (jugador contra jugador)
+ESPERA = timedelta(seconds=60)  # cuánto se busca rival
+TURNO = timedelta(seconds=45)  # cuánto tiene quien elige
+TURNOS_VENCIDOS_PARA_ABANDONO = 2
+RONDAS_MINIMAS_PARA_XP_POR_ABANDONO = 3
+CANDADO_EMPAREJAMIENTO = "api_tienda_duelos_emparejamiento"
 
 
 @dataclass(frozen=True)
@@ -119,6 +130,10 @@ def significado(atributo: str, r: float) -> str:
 
 
 def explicacion(ronda: dict, mia: dict, rival: dict, soy: str) -> str:
+    if ronda.get("motivo") == "tiempo":
+        if ronda["ganador"] == soy:
+            return "Al rival se le acabó el tiempo de su turno: la ronda es para ti."
+        return "Se te acabó el tiempo del turno: la ronda es para el rival."
     atributo = ronda["atributo"]
     nombre = ATRIBUTOS[atributo].nombre.lower()
     yo = mia["atributos"][atributo]
@@ -171,11 +186,15 @@ def inicio_del_dia() -> datetime:
     return datetime(hoy.year, hoy.month, hoy.day) - DESFASE_COLOMBIA
 
 
-def terminados_hoy(db: Session, usuario_id: int) -> int:
-    """Duelos terminados hoy (hora de Colombia) por el jugador, sin contar abandonos."""
+def con_xp_hoy(db: Session, usuario_id: int, modo: str) -> int:
+    """Duelos de ese modo que hoy (hora de Colombia) ocupan un hueco de XP del
+    jugador: los terminados y los ganados por abandono del rival con XP."""
+    gano_por_abandono = or_(and_(Duelo.jugador_a_id == usuario_id, Duelo.xp_a > 0),
+                            and_(Duelo.jugador_b_id == usuario_id, Duelo.xp_b > 0))
     return db.scalar(select(func.count()).select_from(Duelo).where(
         or_(Duelo.jugador_a_id == usuario_id, Duelo.jugador_b_id == usuario_id),
-        Duelo.estado == "terminado", Duelo.terminado_en >= inicio_del_dia()))
+        Duelo.modo == modo, Duelo.terminado_en >= inicio_del_dia(),
+        or_(Duelo.estado == "terminado", and_(Duelo.estado == "abandonado", gano_por_abandono))))
 
 
 # ---------- Acciones ----------
@@ -186,14 +205,24 @@ class JugadaInvalida(Exception):
         self.estado, self.codigo, self.mensaje, self.extra = estado, codigo, mensaje, extra
 
 
-def crear_contra_maquina(db: Session, usuario_id: int) -> Duelo:
-    """Abandona (sin XP) el duelo contra la máquina en juego, si lo hay, y reparte uno nuevo."""
+def cargar_estudiantes_con_nombre(db: Session) -> list[dict]:
+    columnas = ("id", "nombre", "apellido", "carrera", "promedio", "asistencia", "horas_estudio", "semestre")
+    return [{c: getattr(e, c) for c in columnas} for e in db.scalars(select(Estudiante))]
+
+
+def _poblacion(db: Session) -> list[dict]:
     poblacion = cargar_estudiantes_con_nombre(db)
     if len(poblacion) < MINIMO_ESTUDIANTES:
         raise JugadaInvalida(409, "sin_datos", f"Hacen falta al menos {MINIMO_ESTUDIANTES} estudiantes para repartir")
+    return poblacion
+
+
+def crear_contra_maquina(db: Session, usuario_id: int) -> Duelo:
+    """Abandona (sin XP) el duelo contra la máquina en juego, si lo hay, y reparte uno nuevo."""
+    poblacion = _poblacion(db)
     for anterior in db.scalars(select(Duelo).where(Duelo.jugador_a_id == usuario_id, Duelo.modo == "maquina",
                                                    Duelo.estado == "en_juego").with_for_update()):
-        abandonar(anterior, "a")
+        abandonar(db, anterior, "a")
     mazo_a, mazo_b = repartir(poblacion)
     duelo = Duelo(id=uuid.uuid4().hex, modo="maquina", estado="en_juego", jugador_a_id=usuario_id,
                   jugador_b_id=None, mazo_a=mazo_a, mazo_b=mazo_b, rondas=[], ronda=1)
@@ -202,9 +231,113 @@ def crear_contra_maquina(db: Session, usuario_id: int) -> Duelo:
     return duelo
 
 
-def cargar_estudiantes_con_nombre(db: Session) -> list[dict]:
-    columnas = ("id", "nombre", "apellido", "carrera", "promedio", "asistencia", "horas_estudio", "semestre")
-    return [{c: getattr(e, c) for c in columnas} for e in db.scalars(select(Estudiante))]
+@contextmanager
+def candado(db: Session, nombre: str, segundos: int = 10):
+    """Candado con nombre de MySQL/MariaDB (GET_LOCK): pone en fila a quien lo
+    pida, aunque no haya ninguna fila que bloquear (la cola puede estar vacía)."""
+    if db.execute(text("SELECT GET_LOCK(:n, :s)"), {"n": nombre, "s": segundos}).scalar() != 1:
+        raise JugadaInvalida(503, "emparejamiento_ocupado", "Hay mucha gente buscando rival: inténtalo de nuevo")
+    try:
+        yield
+    finally:
+        db.execute(text("SELECT RELEASE_LOCK(:n)"), {"n": nombre})
+
+
+def buscar_rival(db: Session, usuario_id: int) -> tuple[Duelo, bool]:
+    """Emparejamiento (CONTRATO_DUELO §7.1). Devuelve (duelo, es_nuevo).
+    Hay que llamarla dentro de `candado(db, CANDADO_EMPAREJAMIENTO)`."""
+    ahora = reloj.ahora()
+    propios = db.scalars(select(Duelo).where(
+        or_(Duelo.jugador_a_id == usuario_id, Duelo.jugador_b_id == usuario_id),
+        Duelo.modo == "jugador", Duelo.estado.in_(("esperando", "en_juego"))).with_for_update()).all()
+    for duelo in propios:
+        aplicar_plazos(db, duelo)
+    for duelo in propios:
+        if duelo.estado == "en_juego":
+            raise JugadaInvalida(409, "duelo_en_curso", "Ya tienes un duelo contra un jugador en juego",
+                                 duelo_id=duelo.id)
+        if duelo.estado == "esperando":
+            return duelo, False
+
+    esperando = db.scalar(select(Duelo).where(
+        Duelo.modo == "jugador", Duelo.estado == "esperando", Duelo.jugador_a_id != usuario_id,
+        Duelo.expira_turno_en > ahora).order_by(Duelo.creado_en, Duelo.id).limit(1).with_for_update())
+    if esperando is not None:
+        mazo_a, mazo_b = repartir(_poblacion(db))
+        esperando.jugador_b_id = usuario_id
+        esperando.estado = "en_juego"
+        esperando.mazo_a, esperando.mazo_b = mazo_a, mazo_b
+        esperando.ronda = 1
+        esperando.expira_turno_en = ahora + TURNO
+        db.flush()
+        return esperando, True
+
+    _poblacion(db)  # comprobar que se podrá repartir antes de dejarle esperando
+    duelo = Duelo(id=uuid.uuid4().hex, modo="jugador", estado="esperando", jugador_a_id=usuario_id,
+                  jugador_b_id=None, mazo_a=[], mazo_b=[], rondas=[], ronda=None,
+                  expira_turno_en=ahora + ESPERA)
+    db.add(duelo)
+    db.flush()
+    return duelo, True
+
+
+def _anotar(db: Session, duelo: Duelo, ronda: dict) -> None:
+    duelo.rondas = [*duelo.rondas, ronda]  # asignar una lista nueva: JSONTexto no detecta cambios internos
+    if ronda["ganador"] == "a":
+        duelo.puntos_a += 1
+    elif ronda["ganador"] == "b":
+        duelo.puntos_b += 1
+
+
+def _resolver(db: Session, duelo: Duelo, ronda: int, elige: str, atributo: str) -> None:
+    carta_a, carta_b = duelo.mazo_a[ronda - 1], duelo.mazo_b[ronda - 1]
+    if atributo == "promedio":
+        r = 1.0
+    else:
+        estudiantes = cargar_estudiantes(db)
+        r = correlacion([e[atributo] for e in estudiantes], [e["promedio"] for e in estudiantes])
+    _anotar(db, duelo, {"numero": ronda, "elegido_por": elige, "atributo": atributo, "motivo": "jugada",
+                        "ganador": ganador(carta_a, carta_b, atributo), "r": round(r, 4)})
+    _avanzar(db, duelo, ronda)
+
+
+def _avanzar(db: Session, duelo: Duelo, ronda: int, desde: datetime | None = None) -> None:
+    if ronda == RONDAS:
+        terminar(db, duelo)
+        return
+    duelo.ronda = ronda + 1
+    if duelo.modo == "jugador":
+        duelo.expira_turno_en = (desde or reloj.ahora()) + TURNO
+
+
+def aplicar_plazos(db: Session, duelo: Duelo) -> bool:
+    """Aplica los vencimientos pendientes (CONTRATO_DUELO §7.2). Se llama con la
+    fila bloqueada cada vez que se lee o escribe un duelo contra un jugador:
+    no hay temporizadores, así que da igual si el servidor estuvo dormido.
+    Devuelve True si cambió algo."""
+    if duelo.modo != "jugador" or duelo.expira_turno_en is None:
+        return False
+    ahora = reloj.ahora()
+    if duelo.estado == "esperando":
+        if ahora < duelo.expira_turno_en:
+            return False
+        duelo.estado = "abandonado"  # nadie se unió: se cancela sin resultado
+        duelo.terminado_en = ahora
+        duelo.expira_turno_en = None
+        return True
+
+    cambio = False
+    while duelo.estado == "en_juego" and ahora >= duelo.expira_turno_en:
+        cambio = True
+        ronda, elige, vencio = duelo.ronda, turno(duelo), duelo.expira_turno_en
+        _anotar(db, duelo, {"numero": ronda, "elegido_por": elige, "atributo": None, "motivo": "tiempo",
+                            "ganador": otro_lado(elige), "r": None})
+        suyas = [r for r in duelo.rondas if r["elegido_por"] == elige][-TURNOS_VENCIDOS_PARA_ABANDONO:]
+        if len(suyas) == TURNOS_VENCIDOS_PARA_ABANDONO and all(r["motivo"] == "tiempo" for r in suyas):
+            abandonar(db, duelo, elige, cuando=vencio)
+        else:
+            _avanzar(db, duelo, ronda, desde=vencio)
+    return cambio
 
 
 def jugar(db: Session, duelo: Duelo, lado: str, ronda: int, atributo: str | None) -> bool:
@@ -213,6 +346,8 @@ def jugar(db: Session, duelo: Duelo, lado: str, ronda: int, atributo: str | None
     resueltas = {r["numero"]: r for r in duelo.rondas}
     if ronda in resueltas:  # ¿reintento de una ronda ya resuelta?
         previa = resueltas[ronda]
+        if previa.get("motivo") == "tiempo" and previa["elegido_por"] == lado:
+            raise JugadaInvalida(409, "tiempo_agotado", "Se acabó el tiempo de ese turno", ronda_actual=duelo.ronda)
         esperado = previa["atributo"] if previa["elegido_por"] == lado else None
         if atributo == esperado:
             return False
@@ -224,47 +359,57 @@ def jugar(db: Session, duelo: Duelo, lado: str, ronda: int, atributo: str | None
         raise JugadaInvalida(409, "ronda_incorrecta", f"Toca jugar la ronda {duelo.ronda}", ronda_actual=duelo.ronda)
 
     elige = turno(duelo)
+    contra_maquina = duelo.modo == "maquina"
     if elige == lado and atributo is None:
         raise JugadaInvalida(422, "atributo_requerido", "Es tu turno: elige un atributo")
-    if elige != lado and atributo is not None:
+    if elige != lado and (atributo is not None or not contra_maquina):
         raise JugadaInvalida(409, "no_es_tu_turno", "Es el turno del rival")
-    if elige != lado:  # turno de la máquina (en la v1 el rival siempre lo es)
-        atributo = eleccion_de_la_maquina(duelo.mazo_b[ronda - 1] if elige == "b" else duelo.mazo_a[ronda - 1])
-
-    carta_a, carta_b = duelo.mazo_a[ronda - 1], duelo.mazo_b[ronda - 1]
-    estudiantes = cargar_estudiantes(db)
-    r = correlacion([e[atributo] for e in estudiantes], [e["promedio"] for e in estudiantes]) if atributo != "promedio" else 1.0
-    nueva = {"numero": ronda, "elegido_por": elige, "atributo": atributo,
-             "ganador": ganador(carta_a, carta_b, atributo), "r": round(r, 4)}
-    duelo.rondas = [*duelo.rondas, nueva]  # asignar una lista nueva: JSONTexto no detecta cambios internos
-    if nueva["ganador"] == "a":
-        duelo.puntos_a += 1
-    elif nueva["ganador"] == "b":
-        duelo.puntos_b += 1
-
-    if ronda == RONDAS:
-        terminar(db, duelo)
-    else:
-        duelo.ronda = ronda + 1
+    if elige != lado:  # turno de la máquina
+        atributo = eleccion_de_la_maquina(duelo.mazo_b[ronda - 1])
+    _resolver(db, duelo, ronda, elige, atributo)
     return True
 
 
+def _xp(db: Session, duelo: Duelo, usuario_id: int, resultado: str) -> int:
+    """XP de ese resultado si al jugador le quedan duelos con XP hoy en ese modo.
+    Se llama antes de marcar el duelo como terminado, para no contarlo a él."""
+    if con_xp_hoy(db, usuario_id, duelo.modo) >= DUELOS_CON_XP_AL_DIA:
+        return 0
+    return XP_POR_RESULTADO[duelo.modo][resultado]
+
+
 def terminar(db: Session, duelo: Duelo) -> None:
-    # XP solo para los DUELOS_CON_XP_AL_DIA primeros del día. Se cuenta antes de
-    # marcar este como terminado, para no contarlo a él.
-    con_xp = terminados_hoy(db, duelo.jugador_a_id) < DUELOS_CON_XP_AL_DIA
+    resultado_a = ("victoria" if duelo.puntos_a > duelo.puntos_b
+                   else "derrota" if duelo.puntos_b > duelo.puntos_a else "empate")
+    duelo.xp_a = _xp(db, duelo, duelo.jugador_a_id, resultado_a)
+    if duelo.jugador_b_id is not None:
+        duelo.xp_b = _xp(db, duelo, duelo.jugador_b_id, resultado_de_b(resultado_a))
     duelo.estado = "terminado"
+    duelo.resultado_a = resultado_a
     duelo.ronda = None
+    duelo.expira_turno_en = None
     duelo.terminado_en = reloj.ahora()
-    duelo.resultado_a = ("victoria" if duelo.puntos_a > duelo.puntos_b
-                         else "derrota" if duelo.puntos_b > duelo.puntos_a else "empate")
-    if con_xp:
-        duelo.xp_a = XP_POR_RESULTADO[duelo.resultado_a]
 
 
-def abandonar(duelo: Duelo, lado: str) -> None:
+def resultado_de_b(resultado_a: str) -> str:
+    return {"victoria": "derrota", "derrota": "victoria", "empate": "empate"}[resultado_a]
+
+
+def abandonar(db: Session, duelo: Duelo, lado: str, cuando: datetime | None = None) -> None:
+    """Abandono de `lado` (también por turnos vencidos). Contra un jugador, el
+    otro gana; su XP solo si ya se habían resuelto RONDAS_MINIMAS rondas."""
+    if duelo.estado == "esperando":  # cancelar la búsqueda: sin resultado
+        duelo.estado = "abandonado"
+        duelo.expira_turno_en = None
+        duelo.terminado_en = cuando or reloj.ahora()
+        return
+    ganador_id = duelo.jugador_b_id if lado == "a" else duelo.jugador_a_id
+    xp_ganador = 0
+    if ganador_id is not None and len(duelo.rondas) >= RONDAS_MINIMAS_PARA_XP_POR_ABANDONO:
+        xp_ganador = _xp(db, duelo, ganador_id, "victoria")
+    duelo.xp_a, duelo.xp_b = (0, xp_ganador) if lado == "a" else (xp_ganador, 0)
     duelo.estado = "abandonado"
-    duelo.ronda = None
-    duelo.terminado_en = reloj.ahora()
     duelo.resultado_a = "derrota" if lado == "a" else "victoria"
-    duelo.xp_a = duelo.xp_b = 0
+    duelo.ronda = None
+    duelo.expira_turno_en = None
+    duelo.terminado_en = cuando or reloj.ahora()
