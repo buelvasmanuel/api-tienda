@@ -1,0 +1,15 @@
+# Lo que no entra en la imagen: entornos, secretos, cachés y artefactos locales.
+.git
+venv
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.env
+.env.*
+*.pem
+modelos
+graficas
+Dockerfile
+compose.yaml
+.dockerignore

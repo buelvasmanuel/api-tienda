@@ -9,6 +9,10 @@ través de PyMySQL). Es el backend de la app Flutter `app_estudiantes`.
 
 > **Para ejecutarlo desde cero en Windows o Linux:** ver
 > [INSTRUCCIONES_PROFESOR.md](INSTRUCCIONES_PROFESOR.md).
+>
+> **Con Docker** (API + MariaDB, sin instalar Python ni MariaDB):
+> `docker compose up --build` → <http://localhost:8000/docs>. Solo para
+> desarrollo local; producción usa `render.yaml`.
 
 ## Requisitos
 
@@ -476,7 +480,8 @@ api-tienda/
 │   ├── entrenar_modelo.py # Entrena el modelo de riesgo (scikit-learn)
 │   ├── congelar_modelo_juego.py # Regenera app/modelo_juego.json (a propósito, con commit)
 │   ├── generar_clave.py # Clave nueva para CLAVE_TOKENS
-│   └── crear_usuario.py # Crea usuarios con rol (el primer admin)
+│   ├── crear_usuario.py # Crea usuarios con rol (el primer admin)
+│   └── arranque_docker.py # Arranque del contenedor: clave, migraciones, seed y modelo
 ├── alembic/
 │   ├── env.py           # Conecta Alembic con la config y los modelos
 │   └── versions/        # Archivos de migración
@@ -510,6 +515,8 @@ api-tienda/
 ├── pytest.ini           # Configuración de pytest
 ├── .env.example         # Plantilla de variables de entorno
 ├── render.yaml          # Despliegue en Render (build, start y variables)
+├── Dockerfile           # Imagen de la API para desarrollo local
+├── compose.yaml         # docker compose: API + MariaDB en local
 ├── .python-version      # Versión de Python que usa Render
 ├── requirements.txt     # Dependencias de la app
 └── requirements-dev.txt # Dependencias de desarrollo (tests, seed, gráficas)

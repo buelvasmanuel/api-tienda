@@ -5,10 +5,11 @@ El proyecto tiene dos partes:
 - **`api-tienda`**: API REST (FastAPI + MariaDB/MySQL + modelo de scikit-learn).
 - **`app_estudiantes`**: app Flutter que consume la API (Android, web, Windows o Linux).
 
-Dos formas de probarlo:
+Tres formas de probarlo:
 
 1. **[Opción rápida: versión en la nube](#opción-rápida-versión-en-la-nube)**: sin instalar nada.
-2. **[Opción alternativa: instalación local](#opción-alternativa-instalación-local)**: todo en su PC ([Windows](#windows) o [Linux](#linux)).
+2. **[Opción Docker: la API en su PC con un comando](#opción-docker-la-api-en-su-pc-con-un-comando)**: solo hace falta Docker (sin instalar Python ni MariaDB).
+3. **[Opción alternativa: instalación local](#opción-alternativa-instalación-local)**: todo a mano en su PC ([Windows](#windows) o [Linux](#linux)).
 
 > Este archivo está en los dos repositorios (es el mismo).
 
@@ -37,6 +38,100 @@ Dos formas de probarlo:
 4. Abrir **Estudiantes**.
 
 Qué debe verse: ver [Verificación rápida](#verificación-rápida).
+
+---
+
+## Opción Docker: la API en su PC con un comando
+
+Docker levanta la API y una base MariaDB en contenedores, sin instalar Python
+ni MariaDB. El primer arranque crea las tablas, inserta los 300 estudiantes de
+prueba, entrena el modelo y genera la clave de las sesiones: no hay que editar
+ningún `.env`. La app Flutter se ejecuta igual que en la instalación local
+(paso 6), contra `http://127.0.0.1:8000`.
+
+### 1. Instalar Docker
+
+**Windows 10 (22H2) u 11:** instalar **Docker Desktop**
+(<https://docs.docker.com/desktop/setup/install/windows-install/>) con la
+opción por defecto **"Use WSL 2"**. Reiniciar si lo pide y abrir Docker Desktop
+una vez (debe quedar "Engine running", abajo a la izquierda).
+
+**Linux:**
+
+```bash
+# Ubuntu 24.04
+sudo apt update && sudo apt install docker.io docker-compose-v2 git
+# Debian 13
+sudo apt update && sudo apt install docker.io docker-compose git
+# Arch Linux
+sudo pacman -S docker docker-compose git
+
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER   # para usar docker sin sudo; luego cerrar sesión y volver a entrar
+```
+
+(Otras distribuciones o versiones: <https://docs.docker.com/engine/install/>.)
+
+Comprobar (en Windows, en CMD o PowerShell):
+
+```bash
+docker --version
+docker compose version
+```
+
+### 2. Arrancar
+
+Igual en Windows (CMD o PowerShell) y en Linux:
+
+```bash
+git clone https://github.com/buelvasmanuel/api-tienda.git
+cd api-tienda
+docker compose up --build
+```
+
+La primera vez descarga e instala todo (unos minutos, según la conexión). Está
+lista cuando aparece `Application startup complete`. Abrir
+<http://localhost:8000/docs> → Swagger UI. **Dejar esa terminal abierta** (o
+usar `docker compose up --build -d` para que corra en segundo plano; entonces
+`docker compose ps` muestra `healthy` cuando está lista y `docker compose logs -f api`
+enseña los logs).
+
+Opcional: usuario **admin** (pide la contraseña dos veces; no se ve al escribir):
+
+```bash
+docker compose exec api python -m scripts.crear_usuario Profe_Admin --rol admin
+```
+
+### 3. App Flutter
+
+Como en el paso 6 de la instalación local ([Windows](#6-app-flutter) o
+[Linux](#6-app-flutter-1)): `flutter run -d windows`, `-d linux` o `-d chrome`.
+El emulador de Android y el celular por USB (`adb reverse tcp:8000 tcp:8000`)
+también funcionan.
+
+### Parar, actualizar y empezar de cero
+
+| Para | Comando |
+|---|---|
+| Parar (los datos se conservan) | `Ctrl+C` en la terminal, o `docker compose down` |
+| Volver a arrancar | `docker compose up` |
+| Actualizar el código | `git pull` y `docker compose up --build` |
+| **Borrar todo** (base, modelo, cuentas y sesiones) y empezar de cero | `docker compose down -v` |
+
+### Problemas frecuentes con Docker
+
+| Síntoma | Solución |
+|---|---|
+| Windows: `error during connect` / `open //./pipe/dockerDesktopLinuxEngine` | Docker Desktop no está abierto: abrirlo y esperar a "Engine running" |
+| Windows: `WSL 2 installation is incomplete` o `WSL update required` | En PowerShell: `wsl --update` y reiniciar Docker Desktop |
+| Windows: `Virtualization support not detected` | Activar la virtualización (Intel VT-x / AMD-V, "SVM") en la BIOS/UEFI |
+| Linux: `permission denied ... /var/run/docker.sock` | Falta el grupo `docker`: `sudo usermod -aG docker $USER` y cerrar sesión; o anteponer `sudo` |
+| `Bind for 127.0.0.1:8000 failed: port is already allocated` | Otra API ocupa el puerto 8000 (p. ej. la de la instalación local con `uvicorn`): pararla. O cambiar en `compose.yaml` `"127.0.0.1:8000:8000"` por `"127.0.0.1:8001:8000"` y usar `--dart-define=API_URL=http://127.0.0.1:8001` en la app |
+| Celular en la **misma wifi** (sin cable) no conecta | Por seguridad la API solo escucha en este PC. En `compose.yaml`, cambiar `"127.0.0.1:8000:8000"` por `"8000:8000"`, `docker compose up -d` y usar `--dart-define=API_URL=http://<IP-del-PC>:8000` |
+| La API se reinicia en bucle | Ver el error con `docker compose logs api`. Si se cortó el primer arranque a la mitad: `docker compose down -v` y `docker compose up --build` |
+
+Los **tests** de la API no se ejecutan en Docker: necesitan la instalación
+local (más abajo).
 
 ---
 
@@ -335,7 +430,7 @@ FLUSH PRIVILEGES;
 ```
 
 ```bash
-pytest           # en api-tienda, con el venv activado → 133 passed
+pytest           # en api-tienda, con el venv activado → 563 passed
 flutter test     # en app_estudiantes → 32 tests passed
 ```
 

@@ -1,0 +1,65 @@
+# Desarrollo local con Docker: API + MariaDB, sin instalar Python ni MariaDB.
+#   docker compose up --build     → API en http://localhost:8000/docs
+#   docker compose down           → la para (los datos se conservan)
+#   docker compose down -v        → la para y BORRA los datos (base, modelo, clave)
+# Instrucciones completas: INSTRUCCIONES_PROFESOR.md («Opción Docker»).
+# Solo para local: las contraseñas de aquí son de ejemplo y la base no se
+# publica fuera del ordenador (no tiene puerto en el host).
+
+services:
+  db:
+    image: mariadb:12.3
+    environment:
+      MARIADB_DATABASE: tienda_db
+      MARIADB_USER: tienda_user
+      MARIADB_PASSWORD: tienda_pass_123
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+    command: [--character-set-server=utf8mb4, --collation-server=utf8mb4_unicode_ci]
+    volumes:
+      - datos_db:/var/lib/mysql
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 10s
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_USER: tienda_user
+      DB_PASSWORD: tienda_pass_123
+      DB_NAME: tienda_db
+      CORS_ORIGINS: "*"
+      # Para las passkeys desde Flutter Web en local (CONTRATO_PASSKEYS §5),
+      # con la app en http://localhost:<puerto>; cambiar el puerto si hace falta.
+      PASSKEYS_RP_ID: localhost
+      PASSKEYS_ORIGENES: http://localhost:8080
+      # CLAVE_TOKENS no hace falta: se genera la primera vez y se guarda en
+      # el volumen "datos_api" (scripts/arranque_docker.py).
+    ports:
+      # Solo en este ordenador (127.0.0.1). Para probar desde un celular en la
+      # misma wifi, cambiar por "8000:8000".
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - datos_api:/datos
+      - modelos:/app/modelos
+    restart: unless-stopped
+    # "healthy" en `docker compose ps` cuando la API responde y ve la base.
+    # El primer arranque tarda más: siembra los estudiantes y entrena el modelo.
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/salud', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+volumes:
+  datos_db:
+  datos_api:
+  modelos:
