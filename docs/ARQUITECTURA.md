@@ -9,7 +9,7 @@
 > [CONTRATO_AUTH.md](CONTRATO_AUTH.md) (v1.2),
 > [CONTRATO_LABORATORIO.md](CONTRATO_LABORATORIO.md) (v1.1) y
 > [CONTRATO_JUEGO.md](CONTRATO_JUEGO.md) (v1) y
-> [CONTRATO_DUELO.md](CONTRATO_DUELO.md) (v2).
+> [CONTRATO_DUELO.md](CONTRATO_DUELO.md) (v2.1).
 
 ---
 
@@ -77,7 +77,7 @@ api-tienda/
 │   ├── congelar_modelo_juego.py  # regenera app/modelo_juego.json (con commit)
 │   ├── generar_clave.py     # valor para CLAVE_TOKENS
 │   └── crear_usuario.py     # alias + --rol; única forma de crear el primer admin
-├── tests/                 # 494 tests (§8)
+├── tests/                 # 496 tests (§8)
 ├── docs/                  # ARQUITECTURA.md (este archivo), CONTRATO_AUTH.md, CONTRATO_LABORATORIO.md
 ├── .github/workflows/tests.yml  # CI: pytest con mariadb:lts y mysql:8.4
 ├── alembic.ini, pytest.ini, render.yaml, .python-version (3.14.7)
@@ -333,7 +333,12 @@ ni las siguientes (hay un test que lo comprueba).
 con quien lleve menos de 60 s esperando o deja el duelo `esperando`. El
 emparejamiento va en fila con un candado con nombre (`GET_LOCK`), porque con
 la cola vacía no hay fila que bloquear: sin él, dos que buscan a la vez se
-quedarían esperando los dos. Turnos de 45 s; los vencimientos se aplican
+quedarían esperando los dos. `GET_LOCK` pertenece a la conexión, así que se
+pide y se suelta en una **conexión propia**: en la primera versión se pedía en
+la de la sesión, que el commit devuelve al pool, y con tráfico el
+`RELEASE_LOCK` iba a otra conexión y dejaba el candado cogido (en producción
+bloqueó las búsquedas con `503 emparejamiento_ocupado`; hay un test que lo
+reproduce). Turnos de 45 s; los vencimientos se aplican
 **al leer o escribir** el duelo (`aplicar_plazos`, con la fila bloqueada), así
 que no hay temporizadores y da igual que Render se haya dormido. Dos turnos
 vencidos seguidos = abandono. XP 40/20/10 con su propio máximo de 3 al día;
@@ -345,7 +350,9 @@ aviso con el `DueloOut` de quien lo recibe); todo lo que cambia el duelo
 entra por REST. Se autentica con un primer mensaje `{"tipo": "auth",
 "token"}` (ni en la URL, que acaba en logs, ni en cabeceras, que el navegador
 no permite), comprueba `Origin` (CORS no protege los WebSockets) y cierra con
-4401/4403/4404/4408. Las conexiones viven en `app/tiempo_real.py` (memoria de
+4401/4403/4404/4408. Antes de cerrar envía `{"tipo": "error", "codigo",
+"motivo"}`: en Render los mensajes llegan, pero el marco de cierre con su
+código no siempre (comprobado en producción con los logs del WebSocket). Las conexiones viven en `app/tiempo_real.py` (memoria de
 un único proceso); los endpoints REST, que corren en hilos, avisan con
 `run_coroutine_threadsafe`, siempre después del commit. La autenticación y
 las consultas del WebSocket usan sesiones cortas (`database.sesion_breve`),
@@ -492,11 +499,11 @@ ningún valor** (`hide_input_in_errors`): antes, pydantic imprimía el valor
 inválido o, si faltaba una variable, el resto de variables, y eso acababa en
 los logs de Render.
 
-**Tests** (494; `pytest -q` en ~23 s; también pasan contra MySQL 8.4): auth 67,
-juego 62, límites 43, estudiantes 42, duelos 36, laboratorio 35, seguridad 33,
-refresh 33, duelos entre jugadores 32, usuarios 29, predicción 22, estadísticas
-20, predicción del juego 15, modelo de usuarios 15, modelo del juego 9,
-migraciones 1.
+**Tests** (496; `pytest -q` en ~20 s; también pasan contra MySQL 8.4): auth 67,
+juego 62, límites 43, estudiantes 42, duelos 36, laboratorio 35, duelos entre
+jugadores 34, seguridad 33, refresh 33, usuarios 29, predicción 22,
+estadísticas 20, predicción del juego 15, modelo de usuarios 15, modelo del
+juego 9, migraciones 1.
 
 - `conftest.py` fija antes de importar la app una `CLAVE_TOKENS` de pruebas,
   Argon2 barato (`t=1, m=64 KiB`), `CORS_ORIGINS` e `IP_CLIENTE`.

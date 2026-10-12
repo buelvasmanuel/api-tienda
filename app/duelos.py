@@ -234,13 +234,22 @@ def crear_contra_maquina(db: Session, usuario_id: int) -> Duelo:
 @contextmanager
 def candado(db: Session, nombre: str, segundos: int = 10):
     """Candado con nombre de MySQL/MariaDB (GET_LOCK): pone en fila a quien lo
-    pida, aunque no haya ninguna fila que bloquear (la cola puede estar vacía)."""
-    if db.execute(text("SELECT GET_LOCK(:n, :s)"), {"n": nombre, "s": segundos}).scalar() != 1:
-        raise JugadaInvalida(503, "emparejamiento_ocupado", "Hay mucha gente buscando rival: inténtalo de nuevo")
-    try:
-        yield
-    finally:
-        db.execute(text("SELECT RELEASE_LOCK(:n)"), {"n": nombre})
+    pida, aunque no haya ninguna fila que bloquear (la cola puede estar vacía).
+
+    GET_LOCK pertenece a la CONEXIÓN que lo pide. Por eso va en una conexión
+    propia, abierta aquí y soltada aquí: la de la sesión se devuelve al pool
+    en cada commit, y un RELEASE_LOCK hecho después iría a otra conexión y
+    dejaría el candado cogido para siempre (pasó en producción).
+    """
+    vinculo = db.get_bind()
+    motor = getattr(vinculo, "engine", vinculo)  # en los tests la sesión va atada a una Connection
+    with motor.connect() as conexion:
+        if conexion.execute(text("SELECT GET_LOCK(:n, :s)"), {"n": nombre, "s": segundos}).scalar() != 1:
+            raise JugadaInvalida(503, "emparejamiento_ocupado", "Hay mucha gente buscando rival: inténtalo de nuevo")
+        try:
+            yield
+        finally:
+            conexion.execute(text("SELECT RELEASE_LOCK(:n)"), {"n": nombre})
 
 
 def buscar_rival(db: Session, usuario_id: int) -> tuple[Duelo, bool]:

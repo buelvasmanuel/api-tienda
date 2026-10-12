@@ -277,6 +277,17 @@ def _avisar_presencia(duelo_id: str, usuario_id: int, tipo: str) -> None:
             central.avisar(duelo_id, rival_id, {"tipo": tipo, "duelo": duelo_out(db, duelo, rival_id).model_dump(mode="json")})
 
 
+async def _rechazar(websocket: WebSocket, duelo_id: str, codigo: int, motivo: str) -> None:
+    """Cierra con código, avisando antes con un mensaje normal: detrás del
+    proxy de Render/Cloudflare los mensajes llegan, pero el marco de cierre
+    con su código no siempre (comprobado en producción)."""
+    log.info("ws %s: cierre %s %s", duelo_id[:8], codigo, motivo)
+    try:
+        await websocket.send_json({"tipo": "error", "codigo": codigo, "motivo": motivo})
+    finally:
+        await websocket.close(code=codigo, reason=motivo)
+
+
 @router.websocket("/{duelo_id}/ws")
 async def canal(websocket: WebSocket, duelo_id: str):
     # Se acepta antes de rechazar: si se cerrara durante el handshake, el
@@ -284,8 +295,7 @@ async def canal(websocket: WebSocket, duelo_id: str):
     await websocket.accept()
     log.info("ws %s: aceptado (origin=%r)", duelo_id[:8], websocket.headers.get("origin"))
     if not _origen_permitido(websocket.headers.get("origin")):
-        log.info("ws %s: cierre 4403 origen_no_permitido", duelo_id[:8])
-        await websocket.close(code=4403, reason="origen_no_permitido")
+        await _rechazar(websocket, duelo_id, 4403, "origen_no_permitido")
         return
     try:
         try:
@@ -296,8 +306,7 @@ async def canal(websocket: WebSocket, duelo_id: str):
             raise _Cierre(4401, "no_autenticado")
         usuario_id, estado = await run_in_threadpool(_entrar, primero["token"], duelo_id)
     except _Cierre as c:
-        log.info("ws %s: cierre %s %s", duelo_id[:8], c.codigo, c.motivo)
-        await websocket.close(code=c.codigo, reason=c.motivo)
+        await _rechazar(websocket, duelo_id, c.codigo, c.motivo)
         return
     except (WebSocketDisconnect, ValueError, KeyError):
         return

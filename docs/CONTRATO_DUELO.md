@@ -1,6 +1,6 @@
 # Contrato del Duelo de cartas (Modo 4, Fase 7)
 
-> Contrato entre `api-tienda` y `app_estudiantes`. Versión **2**, 2026-10-12:
+> Contrato entre `api-tienda` y `app_estudiantes`. Versión **2.1**, 2026-10-12 (2.1: mensaje `error` antes de cerrar el WebSocket, §8):
 > duelo contra la máquina (v1) y **jugador contra jugador** (v2, §7 y §8).
 > Autenticación, formato de errores (`{"detail": {"codigo", "mensaje"}}`) e
 > interceptor: CONTRATO_AUTH.md. XP, insignias y ranking: CONTRATO_JUEGO.md.
@@ -300,6 +300,7 @@ desde el punto de vista de quien lo recibe:
 | `tipo` | Cuándo |
 |---|---|
 | `listo` | Justo después de autenticarse: el estado actual |
+| `error` | Justo antes de cerrar la conexión: `codigo` y `motivo` (sin `duelo`) |
 | `emparejado` | Alguien se unió a tu duelo en espera |
 | `ronda_resuelta` | Se resolvió una ronda (por jugada o por tiempo) |
 | `terminado` | El duelo terminó o alguien abandonó |
@@ -333,7 +334,14 @@ de la app.
 `{"tipo": "ping"}` cada 25 s, al que la API contesta `{"tipo": "pong"}`. El
 ping evita que los proxies (Cloudflare, Render) corten una conexión callada.
 
-**Códigos de cierre**
+**Antes de cerrar, la API avisa con un mensaje** `{"tipo": "error", "codigo":
+4401, "motivo": "token_invalido"}` y después cierra con ese mismo código.
+Detrás del proxy de Render y Cloudflare los mensajes llegan siempre, pero el
+cierre con su código no siempre llega (comprobado en producción): **el
+cliente debe actuar al recibir el mensaje `error`** (y cerrar él la conexión),
+no esperar al código de cierre.
+
+**Códigos de cierre** (los mismos que el `codigo` del mensaje `error`)
 
 | Código | Motivo | Qué hace la app |
 |---|---|---|

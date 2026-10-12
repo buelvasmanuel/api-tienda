@@ -281,8 +281,13 @@ def test_ws_autenticacion_y_ping(ana, beto, emparejados):
 
 
 def cierre(ws) -> int:
+    """Primero llega el mensaje {"tipo": "error"} (en Render el marco de cierre
+    no siempre llega) y después el cierre, con el mismo código."""
+    aviso = ws.receive_json()
+    assert aviso["tipo"] == "error" and isinstance(aviso["motivo"], str)
     with pytest.raises(WebSocketDisconnect) as e:
         ws.receive_json()
+    assert e.value.code == aviso["codigo"]
     return e.value.code
 
 
@@ -478,3 +483,37 @@ def test_jugada_y_vencimiento_a_la_vez_resuelven_la_ronda_una_sola_vez(engine, d
         final = db.get(Duelo, duelo_id)
         assert [r["numero"] for r in final.rondas] == [1]
         assert final.rondas[0]["motivo"] == "tiempo" and final.puntos_a + final.puntos_b == 1
+
+
+def test_el_candado_de_emparejamiento_se_suelta_aunque_otro_coja_la_conexion(engine, dos_reales):
+    """GET_LOCK es de la conexión. Antes se pedía en la conexión de la sesión,
+    que el commit devuelve al pool; si otra petición la cogía (lo normal con
+    tráfico), el RELEASE_LOCK iba a otra conexión y el candado quedaba cogido:
+    en producción bloqueó todas las búsquedas de rival."""
+    from sqlalchemy import text
+
+    with _sesion(engine) as db:
+        with reglas.candado(db, reglas.CANDADO_EMPAREJAMIENTO):
+            reglas.buscar_rival(db, dos_reales[0])
+            db.commit()  # devuelve la conexión de la sesión al pool…
+            otra_peticion = engine.connect()  # …y otra petición se la queda
+            otra_peticion.execute(text("SELECT 1"))
+    try:
+        with engine.connect() as observador:
+            libre = observador.execute(text("SELECT IS_FREE_LOCK(:n)"), {"n": reglas.CANDADO_EMPAREJAMIENTO}).scalar()
+            assert libre == 1
+    finally:
+        otra_peticion.close()
+
+
+def test_el_candado_pone_en_fila_y_se_suelta_tras_un_error(engine, dos_reales):
+    from sqlalchemy import text
+
+    with _sesion(engine) as db:
+        with pytest.raises(RuntimeError):
+            with reglas.candado(db, reglas.CANDADO_EMPAREJAMIENTO):
+                with engine.connect() as otra:  # mientras está cogido, otro no lo obtiene
+                    assert otra.execute(text("SELECT GET_LOCK(:n, 0)"), {"n": reglas.CANDADO_EMPAREJAMIENTO}).scalar() == 0
+                raise RuntimeError("fallo a mitad")
+    with engine.connect() as otra:
+        assert otra.execute(text("SELECT IS_FREE_LOCK(:n)"), {"n": reglas.CANDADO_EMPAREJAMIENTO}).scalar() == 1
