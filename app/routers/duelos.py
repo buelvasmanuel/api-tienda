@@ -10,6 +10,7 @@ sigue entrando por REST.
 """
 
 import asyncio
+import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Response, WebSocket, WebSocketDisconnect, status
@@ -27,6 +28,8 @@ from app.errores import error
 from app.models import Duelo, Usuario
 from app.routers.juego import bloquear_usuario, insignias_out, resumen
 from app.tiempo_real import central
+
+log = logging.getLogger("app.duelos")
 
 router = APIRouter(prefix="/duelos", tags=["Duelo"])
 con_sesion = [Depends(usuario_actual)]
@@ -279,7 +282,9 @@ async def canal(websocket: WebSocket, duelo_id: str):
     # Se acepta antes de rechazar: si se cerrara durante el handshake, el
     # navegador no vería el código 4403, solo un fallo de conexión.
     await websocket.accept()
+    log.info("ws %s: aceptado (origin=%r)", duelo_id[:8], websocket.headers.get("origin"))
     if not _origen_permitido(websocket.headers.get("origin")):
+        log.info("ws %s: cierre 4403 origen_no_permitido", duelo_id[:8])
         await websocket.close(code=4403, reason="origen_no_permitido")
         return
     try:
@@ -291,12 +296,14 @@ async def canal(websocket: WebSocket, duelo_id: str):
             raise _Cierre(4401, "no_autenticado")
         usuario_id, estado = await run_in_threadpool(_entrar, primero["token"], duelo_id)
     except _Cierre as c:
+        log.info("ws %s: cierre %s %s", duelo_id[:8], c.codigo, c.motivo)
         await websocket.close(code=c.codigo, reason=c.motivo)
         return
     except (WebSocketDisconnect, ValueError, KeyError):
         return
 
     central.conectar(duelo_id, usuario_id, websocket)
+    log.info("ws %s: usuario %s autenticado", duelo_id[:8], usuario_id)
     try:
         await websocket.send_json({"tipo": "listo", "duelo": estado})
         await run_in_threadpool(_avisar_presencia, duelo_id, usuario_id, "rival_conectado")
