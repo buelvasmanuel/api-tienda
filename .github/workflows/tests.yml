@@ -18,6 +18,7 @@ permissions:
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # un test colgado falla en minutos, no en horas
     strategy:
       fail-fast: false
       matrix:

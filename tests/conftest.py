@@ -91,17 +91,31 @@ def db_session(engine):
 @pytest.fixture
 def client(db_session, monkeypatch):
     """TestClient cuyos endpoints reciben la sesión de test en vez de get_db().
-    También la usa el WebSocket del duelo (database.sesion_breve)."""
+    También la usa el WebSocket del duelo (database.sesion_breve).
+
+    Todas comparten UNA conexión (la de la transacción que se deshace al
+    final), y PyMySQL no admite dos hilos a la vez en una conexión: el
+    WebSocket (su hilo) y una petición REST (otro hilo) podían usarla a la
+    vez y romperla. El candado las pone en fila. En producción no hace falta:
+    cada petición y cada consulta del WebSocket abren su propia sesión."""
+    import threading
     from contextlib import contextmanager
 
     from app import database
     from app.tiempo_real import central
 
+    turno_de_la_conexion = threading.Lock()  # Lock (no RLock): se puede soltar desde otro hilo
+
+    def sesion_de_peticion():
+        with turno_de_la_conexion:
+            yield db_session
+
     @contextmanager
     def sesion_de_test():
-        yield db_session
+        with turno_de_la_conexion:
+            yield db_session
 
-    app.dependency_overrides[get_db] = lambda: db_session
+    app.dependency_overrides[get_db] = sesion_de_peticion
     monkeypatch.setattr(database, "sesion_breve", sesion_de_test)
     central.vaciar()
     with TestClient(app) as c:
