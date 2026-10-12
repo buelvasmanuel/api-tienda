@@ -1,6 +1,6 @@
 # Contrato del Duelo de cartas (Modo 4, Fase 7)
 
-> Contrato entre `api-tienda` y `app_estudiantes`. Versión **2.1**, 2026-10-12 (2.1: mensaje `error` antes de cerrar el WebSocket, §8):
+> Contrato entre `api-tienda` y `app_estudiantes`. Versión **2.2**, 2026-10-12 (2.1: mensaje `error` antes de cerrar el WebSocket, §8; 2.2: `xp_hoy` en `GET /duelos`, §4.3):
 > duelo contra la máquina (v1) y **jugador contra jugador** (v2, §7 y §8).
 > Autenticación, formato de errores (`{"detail": {"codigo", "mensaje"}}`) e
 > interceptor: CONTRATO_AUTH.md. XP, insignias y ranking: CONTRATO_JUEGO.md.
@@ -152,8 +152,10 @@ usa para recuperar el estado tras un error de red o un reinicio.
 
 ### 4.3 `GET /duelos?estado=en_juego|terminado`
 
-`200 {"duelos": [DueloResumenOut]}`: tus duelos, los más recientes primero
-(máx. 20). `DueloResumenOut` = `{id, modo, estado, rival, marcador, resultado, xp_ganada, creado_en}`.
+`200 {"duelos": [DueloResumenOut], "xp_hoy": {"maquina": {"jugados", "maximo"},
+"jugador": {"jugados", "maximo"}}}`: tus duelos, los más recientes primero
+(máx. 20). `xp_hoy` (v2.2) dice cuántos duelos con XP llevas hoy en cada modo,
+para la pantalla de entrada (el cliente no debe contarlos). `DueloResumenOut` = `{id, modo, estado, rival, marcador, resultado, xp_ganada, creado_en}`.
 Sirve para retomar un duelo `en_juego` al abrir la app.
 
 ### 4.4 `POST /duelos/{id}/jugadas`

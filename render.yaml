@@ -47,3 +47,9 @@ services:
       # solos). Con "false", las cuentas las crea el docente con el alta en lote.
       - key: REGISTRO_ABIERTO
         value: "true"
+      # Passkeys (docs/CONTRATO_PASSKEYS.md): dominio al que quedan ligadas y
+      # origen web desde el que se aceptan (la web de GitHub Pages).
+      - key: PASSKEYS_RP_ID
+        value: buelvasmanuel.github.io
+      - key: PASSKEYS_ORIGENES
+        value: https://buelvasmanuel.github.io

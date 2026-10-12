@@ -1,15 +1,16 @@
 # Arquitectura de `api-tienda`
 
 > Estado verificado contra el código. Primera verificación: **2026-10-11**
-> (commit `52ddbf5`, §10). Última actualización: **Fase 7 (logs estructurados
-> con structlog)** del plan de `PROPUESTA_ESTUDIANTES_2.0.md`. Si el código
+> (commit `52ddbf5`, §10). Última actualización: **Fase 7 (passkeys, parte
+> backend)** del plan de `PROPUESTA_ESTUDIANTES_2.0.md`. Si el código
 > cambia, este documento se actualiza en el mismo commit.
 >
 > Los contratos con la app Flutter están aparte:
 > [CONTRATO_AUTH.md](CONTRATO_AUTH.md) (v1.2),
 > [CONTRATO_LABORATORIO.md](CONTRATO_LABORATORIO.md) (v1.1) y
 > [CONTRATO_JUEGO.md](CONTRATO_JUEGO.md) (v1) y
-> [CONTRATO_DUELO.md](CONTRATO_DUELO.md) (v2.1).
+> [CONTRATO_DUELO.md](CONTRATO_DUELO.md) (v2.2) y
+> [CONTRATO_PASSKEYS.md](CONTRATO_PASSKEYS.md) (v1).
 
 ---
 
@@ -61,6 +62,7 @@ api-tienda/
 │   ├── limites.py         # Límite por IP (librería limits) e ip_cliente()
 │   ├── middleware.py      # 413 por cuerpo > 64 KiB y 500 en JSON (dentro de CORS)
 │   ├── logs.py            # structlog: JSON, id por petición (X-Request-ID), sin datos personales
+│   ├── passkeys.py        # WebAuthn: desafíos de un solo uso, registro y verificación (librería webauthn)
 │   └── routers/
 │       ├── auth.py        # /auth/*
 │       ├── usuarios.py    # /usuarios
@@ -68,9 +70,10 @@ api-tienda/
 │       ├── estadisticas.py
 │       ├── prediccion.py  # CargadorModelo (build) + explicación y lote (modelo del juego)
 │       ├── laboratorio.py # /laboratorio (con sesión; guarda rescates y da XP)
+│       ├── passkeys.py    # /passkeys (registro, login, gestión)
 │       ├── juego.py       # /juego (con sesión)
 │       └── duelos.py      # /duelos (con sesión) y el WebSocket /duelos/{id}/ws
-├── alembic/versions/      # 8 migraciones (§3.2)
+├── alembic/versions/      # 9 migraciones (§3.2)
 ├── scripts/
 │   ├── seed_estudiantes.py  # Faker("es_CO"), semilla 42, --cantidad, --reset
 │   ├── graficas.py          # PNG por estadística (llama a la API con httpx2)
@@ -78,7 +81,7 @@ api-tienda/
 │   ├── congelar_modelo_juego.py  # regenera app/modelo_juego.json (con commit)
 │   ├── generar_clave.py     # valor para CLAVE_TOKENS
 │   └── crear_usuario.py     # alias + --rol; única forma de crear el primer admin
-├── tests/                 # 522 tests (§8)
+├── tests/                 # 563 tests (§8)
 ├── docs/                  # ARQUITECTURA.md (este archivo), CONTRATO_AUTH.md, CONTRATO_LABORATORIO.md
 ├── .github/workflows/tests.yml  # CI: pytest con mariadb:lts y mysql:8.4
 ├── alembic.ini, pytest.ini, render.yaml, .python-version (3.14.7)
@@ -160,6 +163,13 @@ modo, estado, resultado, puntos 0–5, ronda 1–5 y XP ≥ 0. Las jugadas bloqu
 la fila con `FOR UPDATE`. Los mazos son copias: editar un estudiante no
 cambia un duelo empezado.
 
+**Passkeys (Fase 7).** `passkeys`: `usuario_id` (FK CASCADE), `credencial_id`
+(base64url, UNIQUE), `clave_publica` (COSE en base64url; la privada no sale del
+dispositivo), `contador` (CHECK ≥ 0), `sincronizada`, `nombre`, `creado_en`,
+`ultimo_uso`. `retos_webauthn`: desafíos de un solo uso (`tipo` registro/login,
+`usuario_id` solo en registro, `expira_en` a 5 min, `usado_en`), en la base para
+sobrevivir a un reinicio; los caducados se borran al pedir opciones nuevas.
+
 No hay columna de sucesor: el sucesor de un refresh es `HMAC(clave, refresh)`
 y se encuentra por su hash. Las familias que pasan sus 30 días se borran al
 abrir cualquier sesión (no hay cron en Render free).
@@ -179,7 +189,8 @@ el esquema de los modelos.
 | `f9047f24dd9b` | **Borra `productos` y `categorias`**; el downgrade las recrea vacías |
 | `5527590d242a` | Crea `usuarios` y `sesiones_refresh` |
 | `7661ab474407` | Crea `intentos_caso`, `rescates` y `usuarios_insignias` (Fase 5) |
-| `68e8f446b376` (head) | Crea `duelos` (Fase 7) |
+| `68e8f446b376` | Crea `duelos` (Fase 7) |
+| `5f36b7e29826` (head) | Crea `passkeys` y `retos_webauthn` (Fase 7) |
 
 ### 3.3 Collation y conexión
 
@@ -394,6 +405,7 @@ para no retener una conexión del pool mientras el WebSocket sigue abierto.
 | Respuestas | HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`; `Cache-Control: no-store` en `/auth` y en el alta en lote; 422 sin `input`; 500 en JSON sin detalles internos y con CORS; 413 por encima de 64 KiB |
 | Base de datos | `READ COMMITTED` + `FOR UPDATE` en lo que decide (login, refresh, XP); `hide_parameters`: los errores de SQL no llevan valores (hashes) a los logs |
 | CORS | `CORS_ORIGINS` obligatoria; métodos y cabeceras explícitos; expone `Retry-After` |
+| Passkeys | WebAuthn con la librería `webauthn` (Duo Labs) como forma **adicional** de entrar: RP ID `buelvasmanuel.github.io`, origen `https://buelvasmanuel.github.io`, passkey descubrible y verificación del usuario obligatorias, atestación `none`. Desafíos aleatorios de un solo uso (5 min, `FOR UPDATE`; un intento fallido también gasta el reto). Se rechaza un contador de firmas que retrocede (posible copia). `user.id` de WebAuthn = HMAC del id del usuario (sin datos personales). Cuenta desactivada → 403; restablecer la cuenta borra sus passkeys. Límite de 60/min por IP en `/passkeys/login/*` |
 | Logs | **structlog en JSON** (Fase 7): cada línea lleva `event`, `level`, `logger`, `momento` y el `request_id` de su petición o WebSocket, que también va en la cabecera `X-Request-ID` (el cliente puede enviar el suyo). Eventos: `peticion` (método, ruta, estado, ms; sustituye al log de acceso de uvicorn, que llevaba la IP), `registro`, `cuenta_bloqueada`, `reuso_de_refresh`, `limite_por_ip_superado`, `demasiados_logins_fallidos`, `admin_*`, `alta_en_lote`, `ws_*`, `error_no_controlado`. **Sin datos personales ni secretos**: ids de usuario (no alias), IPs como hash con clave (`ip_hash`), campos sensibles (`password`, `token`, `alias`…) ocultos y un último filtro que borra tokens e IPs de cualquier texto, también de los mensajes de uvicorn |
 
 ### 5.2 Ataques probados
@@ -417,6 +429,7 @@ para no retener una conexión del pool mientras el WebSocket sigue abierto.
 | Estrellas, XP o «correcto» enviados por el cliente | `test_laboratorio.py`, `test_juego.py` (422) |
 | Dos respuestas simultáneas del mismo jugador (XP doble) | `test_juego.py::test_dos_respuestas_simultaneas_no_dan_la_xp_dos_veces` |
 | Duelo: ver la carta del rival o las siguientes, jugar fuera de turno, repetir rondas, enviar el ganador, XP por repetición, jugada final doble | `test_duelos.py` |
+| Passkeys: otro origen, otro dominio, sin verificación del usuario, otro desafío, firma de otra clave, contador que retrocede, reto reutilizado / caducado / de otro usuario / de otro tipo, cuenta desactivada, borrar la de otro (autenticador simulado con firmas reales) | `test_passkeys.py` |
 | Duelo entre jugadores: emparejarse consigo mismo, dos búsquedas a la vez, jugada y vencimiento a la vez, regalar XP abandonando, WebSocket sin auth / con token caducado / token en la URL / duelo ajeno / origen ajeno | `test_duelos_jugadores.py` |
 
 ---
@@ -488,6 +501,7 @@ tqdm 4.70.1; sin numba). `shap` solo valida la explicación en los tests.
 | `DB_USER`, `DB_PASSWORD`, `DB_NAME` | obligatorias | Conexión |
 | `DB_HOST` / `DB_PORT` | `localhost` / `3306` | Conexión |
 | `DB_SSL_CA` | `""` (sin SSL) | Ruta a `ca.pem` o PEM pegado |
+| `PASSKEYS_RP_ID`, `PASSKEYS_ORIGENES`, `PASSKEYS_RP_NOMBRE` | `buelvasmanuel.github.io`, `https://buelvasmanuel.github.io`, `Estudiantes` | Dominio y orígenes de las passkeys; en local, `localhost` y `http://localhost:<puerto>` |
 | `REGISTRO_ABIERTO` | `true` | `false` cierra `POST /auth/registro` (403 `registro_cerrado`); en Render, `true` |
 | `CORS_ORIGINS` | **obligatoria** | `*` en local; `https://buelvasmanuel.github.io` en Render |
 | `CLAVE_TOKENS` | **obligatoria** | 32 bytes base64url (`scripts.generar_clave`); se valida al arrancar |
@@ -500,11 +514,12 @@ ningún valor** (`hide_input_in_errors`): antes, pydantic imprimía el valor
 inválido o, si faltaba una variable, el resto de variables, y eso acababa en
 los logs de Render.
 
-**Tests** (522; `pytest -q` en ~21 s; también pasan contra MySQL 8.4): auth 67,
-juego 62, límites 43, estudiantes 42, duelos 36, laboratorio 35, duelos entre
-jugadores 34, seguridad 33, refresh 33, usuarios 29, logs 26, predicción 22,
-estadísticas 20, predicción del juego 15, modelo de usuarios 15, modelo del
-juego 9, migraciones 1.
+**Tests** (563; `pytest -q` en ~18 s; también pasan contra MySQL 8.4): auth 67,
+juego 62, límites 43, estudiantes 42, passkeys 40, duelos 37, laboratorio 35,
+duelos entre jugadores 34, seguridad 33, refresh 33, usuarios 29, logs 26,
+predicción 22, estadísticas 20, predicción del juego 15, modelo de usuarios 15,
+modelo del juego 9, migraciones 1. Las passkeys se prueban con un autenticador
+simulado (`tests/autenticador.py`) que produce firmas ECDSA reales.
 
 - `conftest.py` fija antes de importar la app una `CLAVE_TOKENS` de pruebas,
   Argon2 barato (`t=1, m=64 KiB`), `CORS_ORIGINS` e `IP_CLIENTE`.

@@ -552,8 +552,14 @@ class DueloResumenOut(BaseModel):
     creado_en: FechaUTC
 
 
+class XpHoyOut(BaseModel):
+    maquina: DuelosConXpOut
+    jugador: DuelosConXpOut
+
+
 class DuelosOut(BaseModel):
     duelos: list[DueloResumenOut]
+    xp_hoy: XpHoyOut = Field(description="Duelos con XP que lleva hoy el jugador en cada modo (v2.2)")
 
 
 class NuevoDueloEntrada(Entrada):
@@ -563,3 +569,32 @@ class NuevoDueloEntrada(Entrada):
 class JugadaEntrada(Entrada):
     ronda: int = Field(ge=1, le=5)
     atributo: AtributoDuelo | None
+
+
+# ---------- Passkeys (docs/CONTRATO_PASSKEYS.md) ----------
+
+RetoId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
+
+
+class OpcionesPasskeyOut(BaseModel):
+    reto_id: str
+    opciones: dict = Field(description="JSON estándar de WebAuthn (creación o petición de credencial)")
+
+
+class RegistroPasskeyEntrada(Entrada):
+    reto_id: RetoId
+    credencial: dict = Field(description="credential.toJSON() del navegador")
+    nombre: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)] | None = None
+
+
+class LoginPasskeyEntrada(Entrada):
+    reto_id: RetoId
+    credencial: dict = Field(description="credential.toJSON() del navegador")
+
+
+class PasskeyOut(BaseModel):
+    id: int
+    nombre: str
+    creada_en: FechaUTC
+    ultimo_uso: FechaUTC | None
+    sincronizada: bool

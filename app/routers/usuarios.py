@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import logs, schemas, seguridad, sesiones
+from app import logs, passkeys, schemas, seguridad, sesiones
 from app.database import get_db
 from app.dependencias import requiere_rol
 from app.errores import error, validacion_password_igual_al_alias
@@ -61,15 +61,17 @@ def modificar(usuario_id: int, cambios: schemas.UsuarioCambios,
 @router.put("/{usuario_id}/password", status_code=status.HTTP_204_NO_CONTENT)
 def restablecer_password(usuario_id: int, datos: schemas.PasswordAdmin,
                          admin: Usuario = Depends(requiere_rol("admin")), db: Session = Depends(get_db)):
-    """Pone una contraseña nueva y cierra todas las sesiones de ese usuario."""
+    """Pone una contraseña nueva, cierra todas las sesiones de ese usuario y
+    borra sus passkeys (restablecer = solo la contraseña nueva da acceso)."""
     usuario = _objetivo(usuario_id, admin, db)
     if schemas.password_igual_al_alias(datos.password_nueva, usuario.alias):
         raise validacion_password_igual_al_alias("password_nueva")
     usuario.hash_password = seguridad.hashear_password(datos.password_nueva)
     registrar_acierto(usuario)  # quita un posible bloqueo por fuerza bruta
     sesiones.cerrar_todas(db, usuario, "password")
+    passkeys_borradas = passkeys.borrar_de(db, usuario.id)
     db.commit()
-    log.info("admin_restablece_password", admin_id=admin.id, usuario_id=usuario.id)
+    log.info("admin_restablece_password", admin_id=admin.id, usuario_id=usuario.id, passkeys_borradas=passkeys_borradas)
 
 
 @router.post("/lote", response_model=schemas.LoteOut, status_code=status.HTTP_201_CREATED)

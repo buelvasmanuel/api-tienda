@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     # cuentas solo las crea un docente (alta en lote) o un admin.
     REGISTRO_ABIERTO: bool = True
 
+    # Passkeys (docs/CONTRATO_PASSKEYS.md): el dominio (RP ID) al que quedan
+    # ligadas y los orígenes web desde los que se aceptan, separados por comas.
+    # En local, para probar con Flutter Web: localhost y http://localhost:<puerto>.
+    PASSKEYS_RP_ID: str = "buelvasmanuel.github.io"
+    PASSKEYS_RP_NOMBRE: str = "Estudiantes"
+    PASSKEYS_ORIGENES: str = "https://buelvasmanuel.github.io"
+
     # Clave maestra de los tokens: 32 bytes en base64url. De ella se derivan la
     # clave de PASETO y la de los refresh (app/seguridad.py). Sin valor por
     # defecto: si falta, la app no arranca. Generar con:
@@ -108,6 +115,10 @@ class Settings(BaseSettings):
                 contexto = ssl.create_default_context(cafile=ca)
             args["ssl"] = contexto  # verifica el certificado y el nombre del host
         return args
+
+    @property
+    def passkeys_origenes(self) -> list[str]:
+        return [o.strip().rstrip("/") for o in self.PASSKEYS_ORIGENES.split(",") if o.strip()]
 
     @property
     def cors_origins(self) -> list[str]:

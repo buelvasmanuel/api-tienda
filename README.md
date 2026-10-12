@@ -460,6 +460,7 @@ api-tienda/
 │   ├── limites.py       # Límite de peticiones por IP (librería limits) e IP del cliente
 │   ├── middleware.py    # 413 por cuerpo > 64 KiB y 500 en JSON (dentro de CORS)
 │   ├── logs.py          # Logs en JSON (structlog) con X-Request-ID, sin datos personales
+│   ├── passkeys.py      # Passkeys (WebAuthn)
 │   └── routers/
 │       ├── auth.py        # /auth: registro, login, refresh, sesiones
 │       ├── usuarios.py    # /usuarios: gestión por docentes y admins
@@ -499,7 +500,9 @@ api-tienda/
 │   ├── test_juego.py    # Casos, XP, insignias, ranking, rescates guardados, concurrencia
 │   ├── test_duelos.py   # Duelo: reglas, anti-trampa, reintentos, XP diaria, concurrencia
 │   ├── test_duelos_jugadores.py # Duelo entre jugadores: emparejamiento, tiempo, WebSocket, concurrencia
-│   └── test_logs.py     # Logs: X-Request-ID, JSON, sin datos personales ni secretos
+│   ├── test_logs.py     # Logs: X-Request-ID, JSON, sin datos personales ni secretos
+│   ├── autenticador.py  # Autenticador WebAuthn simulado (firmas reales)
+│   └── test_passkeys.py # Passkeys: registro, login, ataques, gestión
 ├── docs/
 │   ├── ARQUITECTURA.md  # Estado verificado del backend y deuda técnica
 │   └── CONTRATO_AUTH.md # Contrato de autenticación con la app Flutter
@@ -559,7 +562,7 @@ debe hacer el cliente en cada caso) está en
 | `PUT`  | `/auth/password`  | con token   | Cambia la contraseña y cierra las demás sesiones |
 | `GET`  | `/usuarios`       | docente, admin | Lista de usuarios |
 | `PATCH`| `/usuarios/{id}`  | admin       | Cambia rol o activa/desactiva |
-| `PUT`  | `/usuarios/{id}/password` | admin | Restablece la contraseña (no hay email) |
+| `PUT`  | `/usuarios/{id}/password` | admin | Restablece la contraseña (no hay email) y borra sus passkeys |
 | `POST` | `/usuarios/lote`  | docente, admin | Crea hasta 40 cuentas de jugador con contraseñas generadas |
 
 Las peticiones protegidas llevan `Authorization: Bearer <access_token>`. En
@@ -641,6 +644,19 @@ nivel salen de los intentos guardados (no hay un total que se desincronice).
 | `GET`  | `/juego/progreso` | XP, nivel, racha, insignias | 200 / 401 |
 | `GET`  | `/juego/ranking?periodo=semana\|siempre` | Clasificación de jugadores por XP | 200 / 401 / 422 |
 | `GET`  | `/juego/jugadores` | Progreso de todos los jugadores (docente, admin) | 200 / 401 / 403 |
+
+### Passkeys (entrar sin contraseña)
+
+Forma **adicional** de entrar, solo desde la web de GitHub Pages por ahora; la
+contraseña se conserva. Contrato completo en
+[docs/CONTRATO_PASSKEYS.md](docs/CONTRATO_PASSKEYS.md).
+
+| Método | Ruta | Acceso | Descripción |
+|--------|------|--------|-------------|
+| `POST` | `/passkeys/registro/opciones` y `/passkeys/registro/verificacion` | con token | Registrar una passkey |
+| `POST` | `/passkeys/login/opciones` y `/passkeys/login/verificacion` | público | Entrar con una passkey (devuelve los mismos tokens que el login) |
+| `GET`  | `/passkeys` | con token | Mis passkeys |
+| `DELETE` | `/passkeys/{id}` | con token | Borrar una passkey |
 
 ### Duelo de cartas (con sesión)
 

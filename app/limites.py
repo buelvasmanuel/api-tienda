@@ -31,6 +31,7 @@ log = logs.obtener("app.auth")
 LOGIN = parse("120/minute")  # todas las peticiones de login (techo de carga)
 REGISTRO = parse("60/hour")
 REFRESH = parse("300/minute")  # un refresh no se adivina: solo frena abusos de carga
+PASSKEYS = parse("60/minute")  # /passkeys/login/*: sin la clave privada no hay nada que adivinar
 # Logins fallidos (401) por IP. Se comprueba antes de calcular ningún hash.
 FALLOS_LOGIN = parse("30/minute")
 

@@ -11,7 +11,7 @@ from app import logs, middleware
 from app.config import settings
 from app.database import get_db
 from app.errores import error
-from app.routers import auth, duelos, estadisticas, estudiantes, juego, laboratorio, prediccion, usuarios
+from app.routers import auth, duelos, estadisticas, estudiantes, juego, laboratorio, passkeys, prediccion, usuarios
 
 # Logs estructurados en JSON con un id por petición (app/logs.py). Se
 # configuran al importar la app, después de que uvicorn configure los suyos.
@@ -73,6 +73,7 @@ async def cabeceras_de_seguridad(request: Request, call_next):
 app.add_middleware(logs.IdDePeticion)
 
 app.include_router(auth.router)
+app.include_router(passkeys.router)
 app.include_router(usuarios.router)
 app.include_router(estudiantes.router)
 app.include_router(estadisticas.router)

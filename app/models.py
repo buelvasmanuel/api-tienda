@@ -235,3 +235,41 @@ class Duelo(Base):
         FechaHora, default=lambda: reloj.ahora(), onupdate=lambda: reloj.ahora()
     )
     terminado_en: Mapped[datetime | None] = mapped_column(FechaHora)
+
+
+# ---------- Passkeys (docs/CONTRATO_PASSKEYS.md) ----------
+
+class Passkey(Base):
+    """Una passkey de un usuario: solo su clave PÚBLICA (la privada no sale
+    nunca del dispositivo)."""
+
+    __tablename__ = "passkeys"
+    __table_args__ = (CheckConstraint("contador >= 0", name="contador"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id", ondelete="CASCADE"), index=True)
+    credencial_id: Mapped[str] = mapped_column(String(512), unique=True)  # base64url del rawId
+    clave_publica: Mapped[str] = mapped_column(Text)  # base64url de la clave COSE
+    contador: Mapped[int] = mapped_column(BigInteger, default=0)  # contador de firmas del autenticador
+    sincronizada: Mapped[bool] = mapped_column(default=False)  # copia entre dispositivos (backup state)
+    nombre: Mapped[str] = mapped_column(String(60))
+    creado_en: Mapped[datetime] = mapped_column(FechaHora, default=lambda: reloj.ahora())
+    ultimo_uso: Mapped[datetime | None] = mapped_column(FechaHora)
+
+
+TIPOS_DE_RETO = ("registro", "login")
+
+
+class RetoWebAuthn(Base):
+    """Desafío de un solo uso para registrar o usar una passkey. En la base (no
+    en memoria) para que un reinicio de Render no rompa un registro a medias."""
+
+    __tablename__ = "retos_webauthn"
+    __table_args__ = (CheckConstraint(f"tipo IN ({_en(TIPOS_DE_RETO)})", name="tipo"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)  # uuid4 en hex
+    tipo: Mapped[str] = mapped_column(String(10))
+    usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id", ondelete="CASCADE"))  # solo en registro
+    reto: Mapped[str] = mapped_column(String(128))  # base64url del desafío
+    expira_en: Mapped[datetime] = mapped_column(FechaHora, index=True)
+    usado_en: Mapped[datetime | None] = mapped_column(FechaHora)

@@ -103,6 +103,13 @@ def _derivar(proposito: bytes) -> bytes:
 
 _CLAVE_PASETO = Key.new(version=4, purpose="local", key=_derivar(b"api-tienda/paseto-v4-local"))
 _CLAVE_REFRESH = _derivar(b"api-tienda/refresh-sucesor")
+_CLAVE_WEBAUTHN = _derivar(b"api-tienda/webauthn-user-handle")
+
+
+def identificador_webauthn(usuario_id: int) -> bytes:
+    """`user.id` de WebAuthn: opaco y estable (HMAC del id del usuario). La
+    especificación pide que no lleve datos personales, ni siquiera el id tal cual."""
+    return hmac.new(_CLAVE_WEBAUTHN, str(usuario_id).encode(), hashlib.sha256).digest()
 
 
 # ---------- Access token (PASETO v4.local) ----------

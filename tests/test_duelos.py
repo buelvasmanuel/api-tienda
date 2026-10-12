@@ -433,3 +433,11 @@ def test_dos_envios_simultaneos_de_la_jugada_final(engine):
             for e in db.scalars(select(Estudiante)):
                 db.delete(e)
             db.commit()
+
+
+def test_listar_trae_la_xp_de_hoy_por_modo(jugador, estudiantes):
+    jugar_entero(jugador, nuevo(jugador))
+
+    xp_hoy = jugador.get("/duelos").json()["xp_hoy"]
+
+    assert xp_hoy == {"maquina": {"jugados": 1, "maximo": 3}, "jugador": {"jugados": 0, "maximo": 3}}

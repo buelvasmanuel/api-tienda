@@ -173,8 +173,12 @@ def listar(estado: Literal["esperando", "en_juego", "terminado"] | None = None,
         resumenes.append(schemas.DueloResumenOut(id=d.id, modo=d.modo, estado=d.estado, rival=d.rival,
                                                  marcador=d.marcador, resultado=d.resultado,
                                                  xp_ganada=d.xp_ganada, creado_en=d.creado_en))
+    xp_hoy = schemas.XpHoyOut(**{
+        modo: schemas.DuelosConXpOut(jugados=min(reglas.con_xp_hoy(db, usuario.id, modo), reglas.DUELOS_CON_XP_AL_DIA),
+                                     maximo=reglas.DUELOS_CON_XP_AL_DIA)
+        for modo in ("maquina", "jugador")})
     db.commit()
-    return schemas.DuelosOut(duelos=resumenes)
+    return schemas.DuelosOut(duelos=resumenes, xp_hoy=xp_hoy)
 
 
 @router.get("/{duelo_id}", response_model=schemas.DueloOut, dependencies=con_sesion)
