@@ -53,6 +53,11 @@ Los errores de autenticación y de `/usuarios` tienen siempre esta forma:
 - El cliente decide **por `codigo`**, nunca por `mensaje` (el mensaje puede cambiar; está en español y se puede mostrar al usuario).
 - Los `401` llevan la cabecera `WWW-Authenticate: Bearer`.
 - Los `429` llevan la cabecera `Retry-After` (segundos, entero).
+- **Toda respuesta lleva `X-Request-ID`** (Fase 7; expuesta por CORS). Es el
+  id con el que esa petición aparece en los logs del servidor: si un usuario
+  reporta un error, ese id permite encontrarlo. El cliente puede enviar su
+  propio `X-Request-ID` (8–64 caracteres `[A-Za-z0-9-]`) y la API lo reutiliza;
+  si no es válido, genera otro.
 - Los `422` de validación son los estándar de FastAPI
   (`{"detail": [{"loc": [...], "msg": "...", "type": "..."}]}`) **sin el campo
   `input`** en toda la API: así nunca se devuelve una contraseña enviada.

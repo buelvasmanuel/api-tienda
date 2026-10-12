@@ -218,7 +218,8 @@ def test_las_acciones_de_admin_quedan_en_el_log(client, admin, jugador, caplog):
         client.put(f"/usuarios/{jugador.id}/password", json={"password_nueva": "nueva-clave-789"},
                    headers=cabeceras(admin))
 
-    mensajes = [r.getMessage() for r in caplog.records if r.name == "app.auth"]
-    assert f"admin {admin.id} modificó al usuario {jugador.id}: rol jugador→docente, activo True→False" in mensajes
-    assert f"admin {admin.id} restableció la contraseña del usuario {jugador.id}" in mensajes
-    assert not any("nueva-clave-789" in m for m in mensajes)
+    eventos = [r.msg for r in caplog.records if r.name == "app.auth" and isinstance(r.msg, dict)]
+    assert {"event": "admin_modifica_usuario", "admin_id": admin.id, "usuario_id": jugador.id, "rol_antes": "jugador",
+            "rol": "docente", "activo_antes": True, "activo": False}.items() <= eventos[0].items()
+    assert {"event": "admin_restablece_password", "admin_id": admin.id, "usuario_id": jugador.id}.items() <= eventos[-1].items()
+    assert "nueva-clave-789" not in str(eventos)

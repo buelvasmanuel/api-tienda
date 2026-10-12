@@ -459,6 +459,7 @@ api-tienda/
 │   ├── errores.py       # Errores con código: {"detail": {"codigo", "mensaje"}}
 │   ├── limites.py       # Límite de peticiones por IP (librería limits) e IP del cliente
 │   ├── middleware.py    # 413 por cuerpo > 64 KiB y 500 en JSON (dentro de CORS)
+│   ├── logs.py          # Logs en JSON (structlog) con X-Request-ID, sin datos personales
 │   └── routers/
 │       ├── auth.py        # /auth: registro, login, refresh, sesiones
 │       ├── usuarios.py    # /usuarios: gestión por docentes y admins
@@ -497,7 +498,8 @@ api-tienda/
 │   ├── test_laboratorio.py # Reglas del rescate y /laboratorio
 │   ├── test_juego.py    # Casos, XP, insignias, ranking, rescates guardados, concurrencia
 │   ├── test_duelos.py   # Duelo: reglas, anti-trampa, reintentos, XP diaria, concurrencia
-│   └── test_duelos_jugadores.py # Duelo entre jugadores: emparejamiento, tiempo, WebSocket, concurrencia
+│   ├── test_duelos_jugadores.py # Duelo entre jugadores: emparejamiento, tiempo, WebSocket, concurrencia
+│   └── test_logs.py     # Logs: X-Request-ID, JSON, sin datos personales ni secretos
 ├── docs/
 │   ├── ARQUITECTURA.md  # Estado verificado del backend y deuda técnica
 │   └── CONTRATO_AUTH.md # Contrato de autenticación con la app Flutter

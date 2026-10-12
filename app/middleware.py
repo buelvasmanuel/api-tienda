@@ -5,13 +5,13 @@ respuestas (413, 500) lleven las cabeceras CORS: si no, Flutter Web vería un
 error de red/CORS en lugar del error real.
 """
 
-import logging
-
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-log = logging.getLogger("app.errores")
+from app import logs
+
+log = logs.obtener("app.errores")
 
 TAMANO_MAXIMO = 64 * 1024  # bytes; el cuerpo legítimo más grande (un lote de 50) ronda 5 KB
 
@@ -72,5 +72,5 @@ async def errores_inesperados(request: Request, call_next):
     try:
         return await call_next(request)
     except Exception:
-        log.exception("error no controlado en %s %s", request.method, request.url.path)
+        log.exception("error_no_controlado", metodo=request.method, ruta=request.url.path)
         return _error(500, "error_interno", "Error interno del servidor")

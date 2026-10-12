@@ -1,8 +1,8 @@
 # Arquitectura de `api-tienda`
 
 > Estado verificado contra el código. Primera verificación: **2026-10-11**
-> (commit `52ddbf5`, §10). Última actualización: **Fase 7.2 (duelo entre dos
-> jugadores con WebSocket)** del plan de `PROPUESTA_ESTUDIANTES_2.0.md`. Si el código
+> (commit `52ddbf5`, §10). Última actualización: **Fase 7 (logs estructurados
+> con structlog)** del plan de `PROPUESTA_ESTUDIANTES_2.0.md`. Si el código
 > cambia, este documento se actualiza en el mismo commit.
 >
 > Los contratos con la app Flutter están aparte:
@@ -60,6 +60,7 @@ api-tienda/
 │   ├── errores.py         # {"detail": {"codigo", "mensaje"}}, 401 con WWW-Authenticate, 429
 │   ├── limites.py         # Límite por IP (librería limits) e ip_cliente()
 │   ├── middleware.py      # 413 por cuerpo > 64 KiB y 500 en JSON (dentro de CORS)
+│   ├── logs.py            # structlog: JSON, id por petición (X-Request-ID), sin datos personales
 │   └── routers/
 │       ├── auth.py        # /auth/*
 │       ├── usuarios.py    # /usuarios
@@ -77,7 +78,7 @@ api-tienda/
 │   ├── congelar_modelo_juego.py  # regenera app/modelo_juego.json (con commit)
 │   ├── generar_clave.py     # valor para CLAVE_TOKENS
 │   └── crear_usuario.py     # alias + --rol; única forma de crear el primer admin
-├── tests/                 # 496 tests (§8)
+├── tests/                 # 522 tests (§8)
 ├── docs/                  # ARQUITECTURA.md (este archivo), CONTRATO_AUTH.md, CONTRATO_LABORATORIO.md
 ├── .github/workflows/tests.yml  # CI: pytest con mariadb:lts y mysql:8.4
 ├── alembic.ini, pytest.ini, render.yaml, .python-version (3.14.7)
@@ -393,7 +394,7 @@ para no retener una conexión del pool mientras el WebSocket sigue abierto.
 | Respuestas | HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`; `Cache-Control: no-store` en `/auth` y en el alta en lote; 422 sin `input`; 500 en JSON sin detalles internos y con CORS; 413 por encima de 64 KiB |
 | Base de datos | `READ COMMITTED` + `FOR UPDATE` en lo que decide (login, refresh, XP); `hide_parameters`: los errores de SQL no llevan valores (hashes) a los logs |
 | CORS | `CORS_ORIGINS` obligatoria; métodos y cabeceras explícitos; expone `Retry-After` |
-| Logs | Logger `app.auth`: registros, bloqueos de cuenta, reuso de refresh, límites por IP superados (con `X-Forwarded-For`) y **acciones de admin** (cambios de rol o estado, restablecer contraseña, alta en lote). Logger `app.errores`: trazas de los 500 |
+| Logs | **structlog en JSON** (Fase 7): cada línea lleva `event`, `level`, `logger`, `momento` y el `request_id` de su petición o WebSocket, que también va en la cabecera `X-Request-ID` (el cliente puede enviar el suyo). Eventos: `peticion` (método, ruta, estado, ms; sustituye al log de acceso de uvicorn, que llevaba la IP), `registro`, `cuenta_bloqueada`, `reuso_de_refresh`, `limite_por_ip_superado`, `demasiados_logins_fallidos`, `admin_*`, `alta_en_lote`, `ws_*`, `error_no_controlado`. **Sin datos personales ni secretos**: ids de usuario (no alias), IPs como hash con clave (`ip_hash`), campos sensibles (`password`, `token`, `alias`…) ocultos y un último filtro que borra tokens e IPs de cualquier texto, también de los mensajes de uvicorn |
 
 ### 5.2 Ataques probados
 
@@ -499,9 +500,9 @@ ningún valor** (`hide_input_in_errors`): antes, pydantic imprimía el valor
 inválido o, si faltaba una variable, el resto de variables, y eso acababa en
 los logs de Render.
 
-**Tests** (496; `pytest -q` en ~20 s; también pasan contra MySQL 8.4): auth 67,
+**Tests** (522; `pytest -q` en ~21 s; también pasan contra MySQL 8.4): auth 67,
 juego 62, límites 43, estudiantes 42, duelos 36, laboratorio 35, duelos entre
-jugadores 34, seguridad 33, refresh 33, usuarios 29, predicción 22,
+jugadores 34, seguridad 33, refresh 33, usuarios 29, logs 26, predicción 22,
 estadísticas 20, predicción del juego 15, modelo de usuarios 15, modelo del
 juego 9, migraciones 1.
 

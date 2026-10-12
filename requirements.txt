@@ -38,6 +38,7 @@ scipy==1.18.1
 six==1.17.0
 SQLAlchemy==2.1.4
 starlette==1.7.0
+structlog==26.1.0
 threadpoolctl==3.7.0
 typing_extensions==4.16.0
 typing-inspection==0.4.4

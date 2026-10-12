@@ -10,13 +10,14 @@ el bucle de asyncio: `avisar` sirve desde cualquier hilo.
 """
 
 import asyncio
-import logging
 import threading
 from collections import defaultdict
 
 from fastapi import WebSocket
 
-log = logging.getLogger("app.duelos")
+from app import logs
+
+log = logs.obtener("app.duelos")
 
 
 class Central:
@@ -63,7 +64,7 @@ class Central:
         try:
             await ws.send_json(mensaje)
         except Exception:  # noqa: BLE001  (conexión ya cerrada: el cliente se resincroniza al volver)
-            log.info("no se pudo enviar un aviso: el WebSocket ya estaba cerrado")
+            log.info("aviso_no_enviado", motivo="websocket_cerrado")
 
     def vaciar(self) -> None:
         """Solo para los tests."""

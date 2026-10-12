@@ -170,7 +170,8 @@ def test_cors_rechaza_otros_origenes(client):
 def test_cors_expone_retry_after(client):
     respuesta = client.get("/", headers={"Origin": "https://app.ejemplo.org"})
 
-    assert respuesta.headers["Access-Control-Expose-Headers"] == "Retry-After"
+    expuestas = {c.strip() for c in respuesta.headers["Access-Control-Expose-Headers"].split(",")}
+    assert expuestas == {"Retry-After", "X-Request-ID"}
 
 
 # ---------- Configuración ----------

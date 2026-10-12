@@ -10,7 +10,6 @@ sigue entrando por REST.
 """
 
 import asyncio
-import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Response, WebSocket, WebSocketDisconnect, status
@@ -18,7 +17,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app import database
+from app import database, logs
 from app import duelos as reglas
 from app import progreso, schemas
 from app.config import settings
@@ -29,7 +28,7 @@ from app.models import Duelo, Usuario
 from app.routers.juego import bloquear_usuario, insignias_out, resumen
 from app.tiempo_real import central
 
-log = logging.getLogger("app.duelos")
+log = logs.obtener("app.duelos")
 
 router = APIRouter(prefix="/duelos", tags=["Duelo"])
 con_sesion = [Depends(usuario_actual)]
@@ -281,7 +280,7 @@ async def _rechazar(websocket: WebSocket, duelo_id: str, codigo: int, motivo: st
     """Cierra con código, avisando antes con un mensaje normal: detrás del
     proxy de Render/Cloudflare los mensajes llegan, pero el marco de cierre
     con su código no siempre (comprobado en producción)."""
-    log.info("ws %s: cierre %s %s", duelo_id[:8], codigo, motivo)
+    log.info("ws_cierre", duelo=duelo_id[:8], codigo=codigo, motivo=motivo)
     try:
         await websocket.send_json({"tipo": "error", "codigo": codigo, "motivo": motivo})
     finally:
@@ -293,7 +292,7 @@ async def canal(websocket: WebSocket, duelo_id: str):
     # Se acepta antes de rechazar: si se cerrara durante el handshake, el
     # navegador no vería el código 4403, solo un fallo de conexión.
     await websocket.accept()
-    log.info("ws %s: aceptado (origin=%r)", duelo_id[:8], websocket.headers.get("origin"))
+    log.info("ws_aceptado", duelo=duelo_id[:8], origin=websocket.headers.get("origin"))
     if not _origen_permitido(websocket.headers.get("origin")):
         await _rechazar(websocket, duelo_id, 4403, "origen_no_permitido")
         return
@@ -312,7 +311,7 @@ async def canal(websocket: WebSocket, duelo_id: str):
         return
 
     central.conectar(duelo_id, usuario_id, websocket)
-    log.info("ws %s: usuario %s autenticado", duelo_id[:8], usuario_id)
+    log.info("ws_autenticado", duelo=duelo_id[:8], usuario_id=usuario_id)
     try:
         await websocket.send_json({"tipo": "listo", "duelo": estado})
         await run_in_threadpool(_avisar_presencia, duelo_id, usuario_id, "rival_conectado")

@@ -4,17 +4,16 @@ Un login abre una familia; cada refresh la hace avanzar (rotación). Ver
 docs/CONTRATO_AUTH.md §5 para la regla de reintentos y la detección de reuso.
 """
 
-import logging
 import uuid
 from dataclasses import dataclass
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
-from app import reloj, seguridad
+from app import logs, reloj, seguridad
 from app.models import SesionRefresh, Usuario
 
-log = logging.getLogger("app.auth")
+log = logs.obtener("app.auth")
 
 
 @dataclass(frozen=True)
@@ -124,8 +123,7 @@ def rotar(db: Session, refresh: str, user_agent: str | None) -> tuple[Usuario, E
         return usuario, Emitido(sucesor, siguiente)
 
     revocar_familia(db, actual.familia_id, "reuso")
-    log.warning("reuso de refresh detectado: familia %s del usuario %s revocada",
-                actual.familia_id, usuario.id)
+    log.warning("reuso_de_refresh", familia=actual.familia_id, usuario_id=usuario.id)
     raise RefreshRechazado(401, "sesion_revocada", "La sesión se cerró por seguridad; inicia sesión de nuevo")
 
 

@@ -1,5 +1,3 @@
-import logging
-
 from fastapi import Depends, FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -9,18 +7,15 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app import middleware
+from app import logs, middleware
 from app.config import settings
 from app.database import get_db
 from app.errores import error
 from app.routers import auth, duelos, estadisticas, estudiantes, juego, laboratorio, prediccion, usuarios
 
-# Logs de la app (eventos de seguridad: bloqueos, reuso de tokens...). uvicorn
-# solo configura sus propios loggers; sin esto los INFO de "app.*" no se ven.
-_handler = logging.StreamHandler()
-_handler.setFormatter(logging.Formatter("%(levelname)s [%(name)s] %(message)s"))
-logging.getLogger("app").addHandler(_handler)
-logging.getLogger("app").setLevel(logging.INFO)
+# Logs estructurados en JSON con un id por petición (app/logs.py). Se
+# configuran al importar la app, después de que uvicorn configure los suyos.
+logs.configurar()
 
 # Las tablas se crean y modifican con migraciones de Alembic (alembic upgrade head).
 app = FastAPI(title="API Tienda")
@@ -50,8 +45,8 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
-    # Sin esto, Flutter Web no puede leer Retry-After en un 429.
-    expose_headers=["Retry-After"],
+    # Sin esto, Flutter Web no puede leer Retry-After (429) ni X-Request-ID.
+    expose_headers=["Retry-After", "X-Request-ID"],
     max_age=600,  # el navegador reutiliza el preflight 10 min
 )
 
@@ -72,6 +67,10 @@ async def cabeceras_de_seguridad(request: Request, call_next):
         respuesta.headers.setdefault(nombre, valor)
     return respuesta
 
+
+# El más externo (se añade el último): todo lo de dentro, incluidos los 500 y
+# las respuestas de CORS, lleva su id de petición en los logs y en X-Request-ID.
+app.add_middleware(logs.IdDePeticion)
 
 app.include_router(auth.router)
 app.include_router(usuarios.router)
@@ -97,6 +96,6 @@ def salud(db: Session = Depends(get_db)):
     try:
         db.execute(text("SELECT 1"))
     except SQLAlchemyError:
-        logging.getLogger("app.errores").exception("/salud: la base de datos no responde")
+        logs.obtener("app.errores").exception("salud_sin_base_de_datos")
         raise error(503, "base_de_datos_no_disponible", "No hay conexión con la base de datos")
     return {"estado": "ok", "base_de_datos": "ok"}

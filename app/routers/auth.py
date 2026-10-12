@@ -1,6 +1,5 @@
 """Registro, login y sesión del usuario. Contrato: docs/CONTRATO_AUTH.md."""
 
-import logging
 import math
 from datetime import timedelta
 
@@ -9,14 +8,14 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import limites, reloj, schemas, seguridad, sesiones
+from app import limites, logs, reloj, schemas, seguridad, sesiones
 from app.config import settings
 from app.database import get_db
 from app.dependencias import SesionActual, sesion_actual, usuario_actual
 from app.errores import demasiados_intentos, error, no_autorizado, validacion_password_igual_al_alias
 from app.models import Usuario
 
-log = logging.getLogger("app.auth")
+log = logs.obtener("app.auth")
 
 
 def _sin_cache(respuesta: Response) -> None:
@@ -75,8 +74,8 @@ def registrar_fallo(usuario: Usuario) -> None:
     bloqueo = duracion_bloqueo(usuario.intentos_fallidos)
     if bloqueo:
         usuario.bloqueado_hasta = reloj.ahora() + bloqueo
-        log.warning("cuenta bloqueada alias=%s fallos=%s durante=%ss",
-                    usuario.alias, usuario.intentos_fallidos, int(bloqueo.total_seconds()))
+        log.warning("cuenta_bloqueada", usuario_id=usuario.id, fallos=usuario.intentos_fallidos,
+                    segundos=int(bloqueo.total_seconds()))
 
 
 def registrar_acierto(usuario: Usuario) -> None:
@@ -105,7 +104,7 @@ def registro(datos: schemas.RegistroEntrada, request: Request, db: Session = Dep
 
     emitido = sesiones.abrir(db, usuario, request.headers.get("user-agent"))
     db.commit()
-    log.info("registro alias=%s id=%s", usuario.alias, usuario.id)
+    log.info("registro", usuario_id=usuario.id)
     return tokens(usuario, emitido)
 
 

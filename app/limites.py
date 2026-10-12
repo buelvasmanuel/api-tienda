@@ -14,7 +14,6 @@ usa una API de asyncio que desaparece en Python 3.16 y obligaba a leer sus
 atributos internos para calcular el Retry-After.
 """
 
-import logging
 import math
 import time
 
@@ -23,10 +22,11 @@ from limits import RateLimitItem, parse
 from limits.storage import MemoryStorage
 from limits.strategies import FixedWindowRateLimiter
 
+from app import logs
 from app.config import settings
 from app.errores import demasiados_intentos
 
-log = logging.getLogger("app.auth")
+log = logs.obtener("app.auth")
 
 LOGIN = parse("120/minute")  # todas las peticiones de login (techo de carga)
 REGISTRO = parse("60/hour")
@@ -77,8 +77,11 @@ def ip_cliente(request: Request) -> str:
 def _rechazar(request: Request, motivo: str, segundos: int):
     # La cabecera cruda permite comprobar en los logs de Render que IP_CLIENTE
     # elige bien la IP (ver docs/ARQUITECTURA.md §9).
-    log.warning("%s ip=%s ruta=%s x-forwarded-for=%r", motivo, ip_cliente(request), request.url.path,
-                request.headers.get("x-forwarded-for"))
+    # Hashes, no IPs: basta para ver qué posición de la cadena es la del cliente
+    # (comparando con el hash de una IP conocida) sin guardar ninguna IP.
+    xff = request.headers.get("x-forwarded-for")
+    log.warning(motivo, ip_hash=logs.hash_ip(ip_cliente(request)), ruta=request.url.path,
+                x_forwarded_for=[logs.hash_ip(ip.strip()) for ip in xff.split(",")] if xff else None)
     return demasiados_intentos(segundos)
 
 
@@ -89,7 +92,7 @@ def por_ip(limite: RateLimitItem, espacio: str):
     def comprobar(request: Request) -> None:
         segundos = limitador.superado(limite, espacio, ip_cliente(request))
         if segundos is not None:
-            raise _rechazar(request, "límite por IP superado", segundos)
+            raise _rechazar(request, "limite_por_ip_superado", segundos)
 
     return comprobar
 
@@ -98,7 +101,7 @@ def comprobar_fallos_login(request: Request) -> None:
     """429 si esta IP ya acumuló demasiados logins fallidos en la ventana."""
     segundos = limitador.superado(FALLOS_LOGIN, "login-fallidos", ip_cliente(request), contar=False)
     if segundos is not None:
-        raise _rechazar(request, "demasiados logins fallidos", segundos)
+        raise _rechazar(request, "demasiados_logins_fallidos", segundos)
 
 
 def registrar_fallo_login(request: Request) -> None:
