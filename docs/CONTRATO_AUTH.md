@@ -433,7 +433,29 @@ ignora**.
 | Chrome, Edge | 114+ |
 | Firefox | 141+ |
 | Safari | 26.2+ (según la página de CHIPS de Google; antes, ITP bloquea la cookie) |
-| Brave | ver «Brave» abajo (comprobado a mano) |
+| Brave | Funciona, pero la cookie es **efímera**: ver «Brave» abajo |
+
+#### Brave (comprobado el 2026-10-13, Brave 1.97 / Chromium 155, Shields por defecto)
+
+Prueba contra la API de producción, con la página servida como
+`https://buelvasmanuel.github.io` (con un DNS falso solo para ese navegador):
+
+| Qué | Resultado |
+|---|---|
+| Login con la cabecera, y refresh con `{}` | ✅ `200`: el navegador guarda y envía la cookie |
+| Recargar la página y refrescar | ✅ `200`: **la sesión sobrevive a la recarga** |
+| Salir de la web unos segundos y volver | ✅ `200` |
+| Salir de la web **más de ~30 s** y volver | ❌ `401 refresh_invalido`: la cookie se borró |
+| Cerrar el navegador y abrirlo | ❌ `401 refresh_invalido` |
+| `document.cookie` en la página | `""` (la cookie no es de la web, y además es HttpOnly) |
+
+Brave no bloquea la cookie, pero la trata como **almacenamiento efímero de
+terceros**: existe mientras haya una pestaña de la web abierta y se borra
+poco después de cerrarla. En Brave, la web recuerda la sesión al **recargar**
+(lo que hoy no hace), pero no entre visitas. No es un error: la web debe
+tratar el `401 refresh_invalido` del arranque como «no hay sesión». Para que
+dure más, el jugador tendría que permitir las cookies de esa web en los
+Shields (no comprobado).
 
 **En local** (Docker, `compose.yaml`): `CORS_ORIGINS` tiene
 `http://localhost:8080` y `http://127.0.0.1:8080` (`flutter run -d chrome
