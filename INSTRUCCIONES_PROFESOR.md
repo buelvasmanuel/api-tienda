@@ -43,8 +43,8 @@ Qué debe verse: ver [Verificación rápida](#verificación-rápida).
 
 ## Opción Docker: la API en su PC con un comando
 
-Docker levanta la API y una base MariaDB en contenedores, sin instalar Python
-ni MariaDB. El primer arranque crea las tablas, inserta los 300 estudiantes de
+Docker levanta la API, una base MariaDB y un Redis (para los contadores del
+límite de peticiones) en contenedores, sin instalar Python ni MariaDB. El primer arranque crea las tablas, inserta los 300 estudiantes de
 prueba, entrena el modelo y genera la clave de las sesiones: no hay que editar
 ningún `.env`. La app Flutter se ejecuta igual que en la instalación local
 (paso 6), contra `http://127.0.0.1:8000`.
@@ -105,7 +105,14 @@ docker compose exec api python -m scripts.crear_usuario Profe_Admin --rol admin
 ### 3. App Flutter
 
 Como en el paso 6 de la instalación local ([Windows](#6-app-flutter) o
-[Linux](#6-app-flutter-1)): `flutter run -d windows`, `-d linux` o `-d chrome`.
+[Linux](#6-app-flutter-1)): `flutter run -d windows` o `-d linux`. En el
+navegador, **con el puerto 8080** (la API de Docker solo acepta la web desde
+`localhost:8080`):
+
+```bash
+flutter run -d chrome --web-port 8080
+```
+
 El emulador de Android y el celular por USB (`adb reverse tcp:8000 tcp:8000`)
 también funcionan.
 
@@ -128,6 +135,7 @@ también funcionan.
 | Linux: `permission denied ... /var/run/docker.sock` | Falta el grupo `docker`: `sudo usermod -aG docker $USER` y cerrar sesión; o anteponer `sudo` |
 | `Bind for 127.0.0.1:8000 failed: port is already allocated` | Otra API ocupa el puerto 8000 (p. ej. la de la instalación local con `uvicorn`): pararla. O cambiar en `compose.yaml` `"127.0.0.1:8000:8000"` por `"127.0.0.1:8001:8000"` y usar `--dart-define=API_URL=http://127.0.0.1:8001` en la app |
 | Celular en la **misma wifi** (sin cable) no conecta | Por seguridad la API solo escucha en este PC. En `compose.yaml`, cambiar `"127.0.0.1:8000:8000"` por `"8000:8000"`, `docker compose up -d` y usar `--dart-define=API_URL=http://<IP-del-PC>:8000` |
+| App web (`-d chrome`) con Docker: "Sin conexión con la API" | Falta `--web-port 8080`: la API de Docker solo acepta la web desde `http://localhost:8080` |
 | La API se reinicia en bucle | Ver el error con `docker compose logs api`. Si se cortó el primer arranque a la mitad: `docker compose down -v` y `docker compose up --build` |
 
 Los **tests** de la API no se ejecutan en Docker: necesitan la instalación
@@ -430,7 +438,7 @@ FLUSH PRIVILEGES;
 ```
 
 ```bash
-pytest           # en api-tienda, con el venv activado → 563 passed
+pytest           # en api-tienda, con el venv activado → 597 passed, 3 skipped
 flutter test     # en app_estudiantes → 220 tests passed
 ```
 

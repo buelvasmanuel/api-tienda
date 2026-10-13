@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import limites, logs, schemas, sesiones
+from app import cookie_refresh, limites, logs, schemas, sesiones
 from app import passkeys as reglas
 from app.database import get_db
 from app.dependencias import usuario_actual
@@ -63,7 +63,8 @@ def opciones_login(db: Session = Depends(get_db)):
 
 
 @router.post("/login/verificacion", response_model=schemas.TokensOut, dependencies=por_ip)
-def entrar(datos: schemas.LoginPasskeyEntrada, request: Request, db: Session = Depends(get_db)):
+def entrar(datos: schemas.LoginPasskeyEntrada, request: Request, respuesta: Response,
+           en_cookie: bool = Depends(cookie_refresh.modo_cookie), db: Session = Depends(get_db)):
     try:
         usuario = reglas.entrar(db, datos.reto_id, datos.credencial)
     except reglas.PasskeyRechazada as e:
@@ -73,7 +74,7 @@ def entrar(datos: schemas.LoginPasskeyEntrada, request: Request, db: Session = D
     emitido = sesiones.abrir(db, usuario, request.headers.get("user-agent"))
     db.commit()
     log.info("login_con_passkey", usuario_id=usuario.id)
-    return tokens(usuario, emitido)
+    return cookie_refresh.entregar(respuesta, en_cookie, tokens(usuario, emitido))
 
 
 @router.get("", response_model=list[schemas.PasskeyOut])

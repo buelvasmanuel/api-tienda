@@ -149,7 +149,8 @@ class TokensOut(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"
     expires_in: int = Field(description="Segundos de vida del access token")
-    refresh_token: str
+    refresh_token: str | None = Field(
+        description="null si se pidió en cookie (X-Refresh-En-Cookie: 1): va en la cookie __Host-refresh")
     refresh_expires_in: int = Field(description="Segundos hasta que caduca este refresh token")
     usuario: UsuarioOut
 
@@ -157,7 +158,9 @@ class TokensOut(BaseModel):
 class RefreshEntrada(Entrada):
     # Holgado a propósito: cualquier texto que no sea un refresh nuestro (p. ej.
     # un access token) debe dar 401 refresh_invalido, no 422.
-    refresh_token: str = Field(max_length=512)
+    # Obligatorio salvo en modo cookie (X-Refresh-En-Cookie: 1), donde se puede
+    # enviar {} y se lee de la cookie (app/cookie_refresh.py).
+    refresh_token: str | None = Field(default=None, max_length=512)
 
 
 class PasswordCambio(Entrada):

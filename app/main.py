@@ -40,11 +40,14 @@ app.middleware("http")(middleware.errores_inesperados)
 # Orígenes de CORS_ORIGINS (ver app/config.py). En local vale "*" (cualquier
 # origen, p. ej. Flutter Web en localhost:XXXX); en producción, solo el dominio
 # de la app web. Las apps nativas (APK) no usan CORS.
+# Credenciales (la cookie del refresh, app/cookie_refresh.py) solo con orígenes
+# explícitos: con "*", Starlette devolvería el Origin de cualquier web.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
+    allow_credentials=bool(settings.origenes_con_credenciales),
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Refresh-En-Cookie"],
     # Sin esto, Flutter Web no puede leer Retry-After (429) ni X-Request-ID.
     expose_headers=["Retry-After", "X-Request-ID"],
     max_age=600,  # el navegador reutiliza el preflight 10 min

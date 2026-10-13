@@ -1,6 +1,7 @@
 # Contrato de Passkeys (entrar sin contraseña)
 
-> Contrato entre `api-tienda` y `app_estudiantes`. Versión **1**, 2026-10-12.
+> Contrato entre `api-tienda` y `app_estudiantes`. Versión **1.1**, 2026-10-13
+> (v1.1: el login con passkey admite el refresh en cookie, CONTRATO_AUTH §6.3).
 > Autenticación, tokens, errores e interceptor: [CONTRATO_AUTH.md](CONTRATO_AUTH.md).
 > **Solo web por ahora** (Android, más adelante y opcional).
 
@@ -97,6 +98,8 @@ ese dominio y el jugador elige (no escribe su alias).
 {"reto_id": "9f2e…", "credencial": { …credential.toJSON()… }}
 ```
 → `200 TokensOut` (igual que `POST /auth/login`: abre una sesión nueva).
+Con `X-Refresh-En-Cookie: 1`, el refresh va en la cookie, como en el login
+con contraseña (CONTRATO_AUTH §6.3, v1.1).
 
 | Error | Cuándo |
 |---|---|

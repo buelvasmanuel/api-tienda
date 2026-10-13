@@ -42,7 +42,8 @@
 api-tienda/
 ├── app/
 │   ├── main.py            # FastAPI, handler de 422 sin "input", límites, CORS, cabeceras de seguridad, routers, GET /
-│   ├── config.py          # Settings: DB_*, DB_SSL_CA, CORS_ORIGINS, CLAVE_TOKENS, IP_CLIENTE, ARGON2_*
+│   ├── config.py          # Settings: DB_*, DB_SSL_CA, CORS_ORIGINS, CLAVE_TOKENS, IP_CLIENTE, LIMITES_URI, ARGON2_*
+│   ├── cookie_refresh.py  # Refresh en cookie Partitioned para la web (opcional, CONTRATO_AUTH §6.3)
 │   ├── database.py        # crear_engine(), collation por evento, NAMING_CONVENTION, Base, get_db()
 │   ├── models.py          # Estudiante, Usuario, SesionRefresh, IntentoCaso, Rescate, InsigniaObtenida, Duelo
 │   ├── schemas.py         # Esquemas Pydantic (estudiantes, predicción, auth)
@@ -81,7 +82,7 @@ api-tienda/
 │   ├── congelar_modelo_juego.py  # regenera app/modelo_juego.json (con commit)
 │   ├── generar_clave.py     # valor para CLAVE_TOKENS
 │   └── crear_usuario.py     # alias + --rol; única forma de crear el primer admin
-├── tests/                 # 563 tests (§8)
+├── tests/                 # 600 tests (§8)
 ├── docs/                  # ARQUITECTURA.md (este archivo), CONTRATO_AUTH.md, CONTRATO_LABORATORIO.md
 ├── .github/workflows/tests.yml  # CI: pytest con mariadb:lts y mysql:8.4
 ├── alembic.ini, pytest.ini, render.yaml, .python-version (3.14.7)
@@ -404,7 +405,8 @@ para no retener una conexión del pool mientras el WebSocket sigue abierto.
 | Asignación masiva | `extra="forbid"` en los cuerpos de auth |
 | Respuestas | HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`; `Cache-Control: no-store` en `/auth` y en el alta en lote; 422 sin `input`; 500 en JSON sin detalles internos y con CORS; 413 por encima de 64 KiB |
 | Base de datos | `READ COMMITTED` + `FOR UPDATE` en lo que decide (login, refresh, XP); `hide_parameters`: los errores de SQL no llevan valores (hashes) a los logs |
-| CORS | `CORS_ORIGINS` obligatoria; métodos y cabeceras explícitos; expone `Retry-After` |
+| CORS | `CORS_ORIGINS` obligatoria; métodos y cabeceras explícitos; expone `Retry-After`. Credenciales (cookies) solo con orígenes explícitos: con `*` no hay `allow_credentials` |
+| Refresh en cookie (web, opcional) | Con `X-Refresh-En-Cookie: 1` el refresh va en `__Host-refresh` (`HttpOnly`, `Secure`, `SameSite=None`, `Partitioned`) y el cuerpo trae `null`. Anti-CSRF: partición por web de arriba, preflight obligado por la cabecera propia, `Origin` en `CORS_ORIGINS` (403 `origen_no_permitido`) y cuerpo JSON (415 `json_obligatorio`). Un refresh rechazado borra la cookie. Sin la cabecera, la cookie se ignora (APK igual). CONTRATO_AUTH §6.3 |
 | Passkeys | WebAuthn con la librería `webauthn` (Duo Labs) como forma **adicional** de entrar: RP ID `buelvasmanuel.github.io`, origen `https://buelvasmanuel.github.io`, passkey descubrible y verificación del usuario obligatorias, atestación `none`. Desafíos aleatorios de un solo uso (5 min, `FOR UPDATE`; un intento fallido también gasta el reto). Se rechaza un contador de firmas que retrocede (posible copia). `user.id` de WebAuthn = HMAC del id del usuario (sin datos personales). Cuenta desactivada → 403; restablecer la cuenta borra sus passkeys. Límite de 60/min por IP en `/passkeys/login/*` |
 | Logs | **structlog en JSON** (Fase 7): cada línea lleva `event`, `level`, `logger`, `momento` y el `request_id` de su petición o WebSocket, que también va en la cabecera `X-Request-ID` (el cliente puede enviar el suyo). Eventos: `peticion` (método, ruta, estado, ms; sustituye al log de acceso de uvicorn, que llevaba la IP), `registro`, `cuenta_bloqueada`, `reuso_de_refresh`, `limite_por_ip_superado`, `demasiados_logins_fallidos`, `admin_*`, `alta_en_lote`, `ws_*`, `error_no_controlado`. **Sin datos personales ni secretos**: ids de usuario (no alias), IPs como hash con clave (`ip_hash`), campos sensibles (`password`, `token`, `alias`…) ocultos y un último filtro que borra tokens e IPs de cualquier texto, también de los mensajes de uvicorn |
 
@@ -503,7 +505,8 @@ tqdm 4.70.1; sin numba). `shap` solo valida la explicación en los tests.
 | `DB_SSL_CA` | `""` (sin SSL) | Ruta a `ca.pem` o PEM pegado |
 | `PASSKEYS_RP_ID`, `PASSKEYS_ORIGENES`, `PASSKEYS_RP_NOMBRE` | `buelvasmanuel.github.io`, `https://buelvasmanuel.github.io`, `Estudiantes` | Dominio y orígenes de las passkeys; en local, `localhost` y `http://localhost:<puerto>` |
 | `REGISTRO_ABIERTO` | `true` | `false` cierra `POST /auth/registro` (403 `registro_cerrado`); en Render, `true` |
-| `CORS_ORIGINS` | **obligatoria** | `*` en local; `https://buelvasmanuel.github.io` en Render |
+| `CORS_ORIGINS` | **obligatoria** | `*` en local sin Docker (sin modo cookie); orígenes de `localhost:8080` en Docker; `https://buelvasmanuel.github.io` en Render |
+| `LIMITES_URI` | `memory://` | Dónde viven los contadores por IP; `redis://redis:6379/0` en Docker local (para aprender; producción no lo usa) |
 | `CLAVE_TOKENS` | **obligatoria** | 32 bytes base64url (`scripts.generar_clave`); se valida al arrancar |
 | `IP_CLIENTE` | `conexion` | `conexion`, `x-forwarded-for:N` (N desde la derecha) o nombre de cabecera; `x-forwarded-for` a secas se rechaza |
 | `ARGON2_TIEMPO`, `ARGON2_MEMORIA_KIB`, `ARGON2_PARALELISMO`, `ARGON2_CONCURRENCIA` | 2, 19456, 1, 2 | Coste de Argon2id |
@@ -514,11 +517,12 @@ ningún valor** (`hide_input_in_errors`): antes, pydantic imprimía el valor
 inválido o, si faltaba una variable, el resto de variables, y eso acababa en
 los logs de Render.
 
-**Tests** (563; `pytest -q` en ~18 s; también pasan contra MySQL 8.4): auth 67,
+**Tests** (600; `pytest -q` en ~20 s; también pasan contra MySQL 8.4): auth 67,
 juego 62, límites 43, estudiantes 42, passkeys 40, duelos 37, laboratorio 35,
 duelos entre jugadores 34, seguridad 33, refresh 33, usuarios 29, logs 26,
 predicción 22, estadísticas 20, predicción del juego 15, modelo de usuarios 15,
-modelo del juego 9, migraciones 1. Las passkeys se prueban con un autenticador
+modelo del juego 9, migraciones 1, refresh en cookie 32, límites con Redis 5
+(3 se saltan si no hay Redis; en CI hay uno). Las passkeys se prueban con un autenticador
 simulado (`tests/autenticador.py`) que produce firmas ECDSA reales.
 
 - `conftest.py` fija antes de importar la app una `CLAVE_TOKENS` de pruebas,
@@ -620,7 +624,9 @@ detrás del proxy (verificada); umbral de riesgo duplicado, `response_model` de
    15 min** (decisión de diseño: solo `logout-todo`, cambio de contraseña y
    desactivación cortan los access al instante).
 3. **Contadores por IP en memoria**: se reinician si Render duerme el servicio
-   y no se comparten entre procesos (hoy hay uno).
+   y no se comparten entre procesos (hoy hay uno). Con varias instancias
+   bastaría `LIMITES_URI=redis://…` (probado en Docker local y en CI); hoy no
+   compensa (Render free: una instancia; Key Value gratis sin persistencia).
 4. **Cadena de proxies de Render fijada a mano** (`x-forwarded-for:3`, §9).
 5. **WebSockets en memoria de un único proceso** (Fase 7.2): con varios
    procesos o instancias harían falta avisos compartidos (Redis pub/sub); hoy

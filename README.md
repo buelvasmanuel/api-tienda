@@ -10,7 +10,7 @@ través de PyMySQL). Es el backend de la app Flutter `app_estudiantes`.
 > **Para ejecutarlo desde cero en Windows o Linux:** ver
 > [INSTRUCCIONES_PROFESOR.md](INSTRUCCIONES_PROFESOR.md).
 >
-> **Con Docker** (API + MariaDB, sin instalar Python ni MariaDB):
+> **Con Docker** (API + MariaDB + Redis, sin instalar Python ni MariaDB):
 > `docker compose up --build` → <http://localhost:8000/docs>. Solo para
 > desarrollo local; producción usa `render.yaml`.
 
@@ -115,6 +115,7 @@ Y rellena los valores:
 | `CORS_ORIGINS` | Orígenes web permitidos, separados por comas. **Obligatoria** | `*` en local |
 | `IP_CLIENTE`  | De dónde sale la IP para el límite por IP (opcional) | `conexion` (por defecto) |
 | `REGISTRO_ABIERTO` | `false` cierra el registro público (opcional) | `true` (por defecto) |
+| `LIMITES_URI` | Dónde viven los contadores del límite por IP (opcional) | `memory://` (por defecto); `redis://…` en Docker |
 
 > ⚠️ **Nunca subas `.env` a Git.** Ya está incluido en `.gitignore`.
 > Comparte solo `.env.example`, que no lleva valores reales.
@@ -273,7 +274,10 @@ SHA-256. Detalles y decisiones en [docs/CONTRATO_AUTH.md](docs/CONTRATO_AUTH.md)
 - **CORS** solo afecta a **Flutter Web** (lo aplican los navegadores, no las
   apps nativas). Los orígenes permitidos salen de la variable `CORS_ORIGINS`
   (separados por comas), que es obligatoria: `*` (cualquier origen) en
-  desarrollo y solo el dominio de la app web en producción.
+  desarrollo y solo el dominio de la app web en producción. Con `*` no se
+  permiten cookies, así que el refresh en cookie de la web
+  (CONTRATO_AUTH §6.3) necesita orígenes explícitos (Docker ya los trae:
+  `http://localhost:8080`).
 
 ## Minería de datos: riesgo académico
 
@@ -516,7 +520,7 @@ api-tienda/
 ├── .env.example         # Plantilla de variables de entorno
 ├── render.yaml          # Despliegue en Render (build, start y variables)
 ├── Dockerfile           # Imagen de la API para desarrollo local
-├── compose.yaml         # docker compose: API + MariaDB en local
+├── compose.yaml         # docker compose: API + MariaDB + Redis en local
 ├── .python-version      # Versión de Python que usa Render
 ├── requirements.txt     # Dependencias de la app
 └── requirements-dev.txt # Dependencias de desarrollo (tests, seed, gráficas)

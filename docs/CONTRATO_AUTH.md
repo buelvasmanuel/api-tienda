@@ -1,8 +1,20 @@
 # Contrato de autenticación (`/auth` y `/usuarios`)
 
-> Contrato entre `api-tienda` y `app_estudiantes`. Versión **1.2**, 2026-10-11.
+> Contrato entre `api-tienda` y `app_estudiantes`. Versión **1.3**, 2026-10-13.
 > El interceptor de Flutter se implementa leyendo este archivo. Cualquier
 > cambio de la API que lo afecte se hace aquí primero, en el mismo commit.
+
+### Cambios de la v1.3 (refresh en cookie para la web)
+
+**Compatible:** sin la cabecera nueva nada cambia (el APK y las apps de
+escritorio siguen igual).
+
+| Cambio | Qué toca en el cliente |
+|---|---|
+| **Refresh en cookie, opcional** (§6.3): con `X-Refresh-En-Cookie: 1`, el refresh va en una cookie `HttpOnly` + `Partitioned` en vez de en el cuerpo, y la web recuerda la sesión al recargar | Solo la web, y solo si lo adopta: cabecera, `withCredentials` y `{}` en refresh/logout |
+| `TokensOut.refresh_token` puede ser `null` (solo en modo cookie) | Nada en el APK: sin la cabecera siempre viene |
+| `refresh_token` del cuerpo de `/auth/refresh` y `/auth/logout`: sigue siendo obligatorio **salvo** en modo cookie | Nada |
+| Errores nuevos, solo en modo cookie: `403 origen_no_permitido`, `415 json_obligatorio` | Solo la web |
 
 ### Cambios de la v1.2 (Fase 6: pulido y auditoría)
 
@@ -82,11 +94,13 @@ Los errores de autenticación y de `/usuarios` tienen siempre esta forma:
 | 403 | `cuenta_desactivada` | Un admin desactivó la cuenta (en login, refresh o cualquier petición) | Borrar tokens → login con ese mensaje |
 | 403 | `password_actual_incorrecta` | `PUT /auth/password` con la contraseña actual mal | Error en el formulario |
 | 403 | `registro_cerrado` | `POST /auth/registro` con el registro cerrado en el servidor (v1.2) | Mostrar el mensaje; no reintentar |
+| 403 | `origen_no_permitido` | Modo cookie (§6.3) desde un `Origin` que no es la web de la app, o sin `Origin` (v1.3) | Error de configuración: no reintentar |
 | 404 | `usuario_no_encontrado` | `/usuarios/{id}` inexistente | — |
 | 404 | `estudiante_no_encontrado` | `/estudiantes/{id}` inexistente (Fase 6; antes, texto) | — |
 | 409 | `alias_en_uso` | Registro con un alias que ya existe (sin distinguir mayúsculas). En `POST /usuarios/lote` el detalle añade `"aliases": [...]` con los que chocan | Error en el formulario |
 | 409 | `no_puedes_modificarte` | Un admin intenta cambiar su propio rol/estado desde `/usuarios` | — |
 | 413 | `cuerpo_demasiado_grande` | Cuerpo de más de 64 KiB (v1.2) | — |
+| 415 | `json_obligatorio` | Modo cookie (§6.3) con un cuerpo que no es `application/json` (v1.3) | Enviar `Content-Type: application/json` |
 | 422 | `carrera_desconocida` | `/prediccion/*` con una carrera que el modelo no conoce; añade `carreras_validas` (y `indices` en el lote) | Mostrar las válidas |
 | 429 | `demasiados_intentos` | Límite por cuenta o por IP superado | Esperar `Retry-After` s; mostrar cuenta atrás. **No** reintentar en bucle |
 | 500 | `error_interno` | Error no controlado del servidor; el detalle solo va al log (v1.2) | «Error interno», reintentar más tarde |
@@ -131,6 +145,8 @@ Fecha       = texto ISO 8601 en UTC, p. ej. "2026-10-11T18:04:05.123456Z"
   "usuario": {"id": 7, "alias": "Detective_Ana", "rol": "jugador"}
 }
 ```
+- `refresh_token`: `null` **solo** si se pidió en cookie (§6.3, v1.3); sin la
+  cabecera `X-Refresh-En-Cookie: 1` siempre viene.
 - `expires_in`: segundos de vida del access.
 - `refresh_expires_in`: segundos hasta que caduca **este** refresh
   (mínimo entre 14 días y lo que le quede a la sesión de sus 30 días).
@@ -177,7 +193,8 @@ un bloqueo largo permitiría a cualquiera dejar sin acceso a otro jugador.
 ### 4.3 `POST /auth/refresh` — público (el refresh es la credencial)
 
 Cuerpo: `{"refresh_token": str}` (hasta 512 caracteres; cualquier texto que
-no sea un refresh vigente da `401 refresh_invalido`, no `422`)
+no sea un refresh vigente da `401 refresh_invalido`, no `422`). En modo
+cookie (§6.3) basta `{}`: el refresh sale de la cookie.
 
 | Respuesta | Cuándo |
 |---|---|
@@ -190,8 +207,8 @@ no sea un refresh vigente da `401 refresh_invalido`, no `422`)
 
 ### 4.4 `POST /auth/logout` — público
 
-Cuerpo: `{"refresh_token": str}` → **siempre `204`** (también si el token no
-existe o ya estaba revocado). Cierra la sesión a la que pertenece ese refresh.
+Cuerpo: `{"refresh_token": str}` (o `{}` en modo cookie, §6.3) → **siempre
+`204`** (también si el token no existe o ya estaba revocado). Cierra la sesión a la que pertenece ese refresh.
 El access de esa sesión sigue siendo válido hasta que caduque (≤ 15 min): el
 cliente lo descarta.
 
@@ -313,18 +330,18 @@ Lo que **no** cambia: el cliente sigue debiendo hacer un solo refresh a la vez
 
 ## 6. Qué debe hacer el cliente
 
-### Guardar
+### 6.1 Guardar
 
 | Dato | Móvil / escritorio | Web |
 |---|---|---|
 | `access_token` | Memoria | Memoria |
-| `refresh_token` | `flutter_secure_storage` | **Memoria** (recargar la página = volver a iniciar sesión, hasta el experimento de cookies). No usar `localStorage`; `sessionStorage` tampoco: al duplicar una pestaña se copia el refresh y las dos pestañas acabarían disparando la detección de reuso |
+| `refresh_token` | `flutter_secure_storage` | **Cookie** con el modo cookie (§6.3): la API la guarda y JavaScript no la ve. Sin él, **memoria** (recargar = volver a iniciar sesión). No usar `localStorage`; `sessionStorage` tampoco: al duplicar una pestaña se copia el refresh y las dos pestañas acabarían disparando la detección de reuso |
 | `usuario` | Memoria (se puede cachear sin el token) | Memoria |
 
 Al recibir un `TokensOut`, **guardar primero el `refresh_token` nuevo** y
 después usar el access. Nunca volver a enviar un refresh ya sustituido.
 
-### Interceptor
+### 6.2 Interceptor
 
 1. Peticiones a `/auth/registro`, `/auth/login`, `/auth/refresh`,
    `/auth/logout`: **sin** interceptor (no se refresca ante sus errores).
@@ -349,12 +366,88 @@ después usar el access. Nunca volver a enviar un refresh ya sustituido.
    corresponda).
 7. `403 permiso_denegado` y `429` no se reintentan automáticamente.
 
-### Cerrar sesión
+### 6.3 Web: refresh en cookie (opcional, v1.3)
+
+**Para qué:** que la web recuerde la sesión al recargar la página sin guardar
+el refresh donde JavaScript lo pueda leer. El APK y las apps de escritorio
+**no** lo usan (no tienen cookies de navegador ni CORS).
+
+**Cómo se pide:** la cabecera `X-Refresh-En-Cookie: 1` (exactamente `1`) en
+`POST /auth/registro`, `/auth/login`, `/auth/refresh`, `/auth/logout`,
+`/auth/logout-todo`, `PUT /auth/password` y `POST /passkeys/login/verificacion`,
+y las peticiones con credenciales (`withCredentials: true` en Dart/`fetch(…, {credentials: "include"})`).
+
+**Qué hace la API:**
+
+| Endpoint | Sin la cabecera (APK, escritorio) | Con la cabecera (web) |
+|---|---|---|
+| registro, login, cambio de contraseña, login con passkey | `refresh_token` en el cuerpo | `refresh_token: null` y `Set-Cookie: __Host-refresh=…` |
+| `POST /auth/refresh` | Cuerpo `{"refresh_token": …}` obligatorio | Cuerpo `{}`: lee la cookie; responde con la cookie nueva. Si lo rechaza (`401`/`403`), **borra la cookie** |
+| `POST /auth/logout` | Cuerpo `{"refresh_token": …}` obligatorio | Cuerpo `{}`: cierra la sesión de la cookie y la borra (también `204` si no había cookie) |
+| `POST /auth/logout-todo` | Igual | Además borra la cookie |
+
+La cookie: `__Host-refresh=<refresh>; Max-Age=<refresh_expires_in>; Path=/;
+Secure; HttpOnly; SameSite=None; Partitioned`. Va ligada a la página donde se
+creó (`buelvasmanuel.github.io`): el navegador no la envía desde otra web.
+
+Si la petición con la cabecera trae `refresh_token` en el cuerpo, se usa ese
+(y la respuesta lo devuelve en cookie). Sin la cabecera, la cookie **se
+ignora**.
+
+**Defensas contra CSRF** (la cookie viaja sola en cada petición):
+
+1. **Partitioned**: solo se envía cuando la pestaña es la web de la app.
+2. La cabecera propia obliga al navegador a hacer un *preflight* de CORS, que
+   solo aprueba los orígenes de `CORS_ORIGINS`.
+3. La API comprueba `Origin` (debe ser uno de `CORS_ORIGINS`) → si no,
+   `403 origen_no_permitido`. Con `CORS_ORIGINS="*"` el modo cookie se rechaza
+   siempre.
+4. Si la petición lleva cuerpo, debe ser `application/json` → si no,
+   `415 json_obligatorio` (un formulario HTML no puede enviar JSON).
+
+**Qué debe hacer el cliente web:**
+
+- Enviar `X-Refresh-En-Cookie: 1` y credenciales en las peticiones de la
+  tabla; en el resto no hace falta (las protegidas siguen con `Authorization`).
+- Al arrancar la web: `POST /auth/refresh` con `{}`. `200` → sesión
+  recuperada; `401 refresh_invalido` → no había sesión (pantalla de login,
+  sin aviso de error).
+- No guardar el refresh en ningún sitio: el cuerpo trae `null`.
+- El interceptor no cambia (§6.2, reglas 1–7): el single-flight sigue siendo
+  necesario, y los reintentos sin respuesta van con la misma cookie (si la
+  primera respuesta se perdió, el navegador puede no haber guardado la nueva:
+  la ventana de 120 s devuelve la misma).
+- **Varias pestañas** comparten la cookie: si dos refrescan a la vez, las dos
+  reciben el mismo sucesor (§5).
+- Cerrar sesión: `POST /auth/logout` con `{}` y borrar el access de memoria.
+- Si el navegador no guarda la cookie (bloqueo de cookies de terceros sin
+  soporte de `Partitioned`): el refresh de arranque da `401 refresh_invalido`
+  y la web se comporta como antes (iniciar sesión al recargar). Navegadores:
+  ver la tabla de abajo.
+
+**Navegadores** (cookie de `api-tienda-wjac.onrender.com` dentro de
+`buelvasmanuel.github.io`, que para el navegador son sitios distintos):
+
+| Navegador | `Partitioned` (CHIPS) |
+|---|---|
+| Chrome, Edge | 114+ |
+| Firefox | 141+ |
+| Safari | 26.2+ (según la página de CHIPS de Google; antes, ITP bloquea la cookie) |
+| Brave | ver «Brave» abajo (comprobado a mano) |
+
+**En local** (Docker, `compose.yaml`): `CORS_ORIGINS` tiene
+`http://localhost:8080` y `http://127.0.0.1:8080` (`flutter run -d chrome
+--web-port 8080`). Chrome y Firefox aceptan cookies `Secure` en
+`http://localhost`. Con `CORS_ORIGINS=*` (el `.env.example` de la instalación
+sin Docker) el modo cookie da `403`: hay que poner orígenes explícitos.
+
+### 6.4 Cerrar sesión
 
 Enviar `POST /auth/logout` con el refresh y **borrar los tokens locales sea
-cual sea el resultado** (incluido un fallo de red).
+cual sea el resultado** (incluido un fallo de red). En modo cookie (§6.3), con
+`{}`: la API borra la cookie (JavaScript no puede).
 
-### Tiempos de espera
+### 6.5 Tiempos de espera
 
 Render free tarda ~50 s en despertar: usar 60 s de timeout para la primera
 petición de la sesión y para `/auth/*`.
@@ -380,8 +473,9 @@ ningún límite, aunque una decena se equivoque de contraseña.
 
 Al superarlo: `429 demasiados_intentos` con `Retry-After` (la API la expone
 por CORS, así que Flutter Web también puede leerla). Los contadores
-por IP viven en memoria del servidor (se reinician si Render se duerme);
-el bloqueo por cuenta vive en la base de datos.
+por IP viven en memoria del servidor (se reinician si Render se duerme;
+en Docker local van a Redis, `LIMITES_URI`); el bloqueo por cuenta vive en
+la base de datos.
 
 ---
 

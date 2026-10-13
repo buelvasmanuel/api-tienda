@@ -37,6 +37,7 @@ pyseto==1.10.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.4
 PyYAML==6.0.3
+redis==8.1.0  # solo si LIMITES_URI=redis:// (Docker local); producción usa memory://
 scikit-learn==1.9.1
 scipy==1.18.1
 six==1.17.0

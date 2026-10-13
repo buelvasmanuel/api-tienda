@@ -5,8 +5,10 @@ en la base de datos (app/routers/auth.py). Por eso los límites por IP son
 altos: en un aula, toda la clase sale a internet por la misma IP pública
 (docs/CONTRATO_AUTH.md §7). En el login solo cuentan los intentos fallidos.
 
-Los contadores viven en memoria: se reinician si Render duerme el servicio, y
-solo hay un proceso, así que no hace falta compartirlos (Redis).
+Dónde viven los contadores lo dice LIMITES_URI. En producción, "memory://":
+se reinician si Render duerme el servicio, y solo hay un proceso, así que no
+hace falta compartirlos. En Docker local van a Redis ("redis://redis:6379")
+para aprender cómo se compartirían entre varias instancias.
 
 Antes se usaba slowapi; se sustituyó por esta dependencia de unas líneas sobre
 `limits` (la misma librería que slowapi usa por dentro) porque slowapi 0.1.10
@@ -19,7 +21,7 @@ import time
 
 from fastapi import Request
 from limits import RateLimitItem, parse
-from limits.storage import MemoryStorage
+from limits.storage import storage_from_string
 from limits.strategies import FixedWindowRateLimiter
 
 from app import logs
@@ -37,11 +39,12 @@ FALLOS_LOGIN = parse("30/minute")
 
 
 class Limitador:
-    """Contadores en memoria con ventana fija. `activo` permite apagarlo en los tests."""
+    """Contadores con ventana fija en el almacén de `uri` (memory://, redis://…).
+    `activo` permite apagarlo en los tests."""
 
-    def __init__(self) -> None:
+    def __init__(self, uri: str = "memory://") -> None:
         self.activo = True
-        self._almacen = MemoryStorage()
+        self._almacen = storage_from_string(uri)
         self._estrategia = FixedWindowRateLimiter(self._almacen)
 
     def reiniciar(self) -> None:
@@ -59,7 +62,7 @@ class Limitador:
         return max(1, math.ceil(reinicio - time.time()))
 
 
-limitador = Limitador()
+limitador = Limitador(settings.LIMITES_URI)
 
 
 def ip_cliente(request: Request) -> str:

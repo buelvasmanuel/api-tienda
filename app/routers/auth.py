@@ -3,14 +3,15 @@
 import math
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import limites, logs, reloj, schemas, seguridad, sesiones
+from app import cookie_refresh, limites, logs, reloj, schemas, seguridad, sesiones
 from app.config import settings
 from app.database import get_db
+from app.cookie_refresh import modo_cookie
 from app.dependencias import SesionActual, sesion_actual, usuario_actual
 from app.errores import demasiados_intentos, error, no_autorizado, validacion_password_igual_al_alias
 from app.models import Usuario
@@ -85,7 +86,8 @@ def registrar_acierto(usuario: Usuario) -> None:
 
 @router.post("/registro", response_model=schemas.TokensOut, status_code=status.HTTP_201_CREATED,
              dependencies=[Depends(limites.por_ip(limites.REGISTRO, "registro"))])
-def registro(datos: schemas.RegistroEntrada, request: Request, db: Session = Depends(get_db)):
+def registro(datos: schemas.RegistroEntrada, request: Request, respuesta: Response,
+             en_cookie: bool = Depends(modo_cookie), db: Session = Depends(get_db)):
     """Crea una cuenta de jugador y abre su primera sesión."""
     if not settings.REGISTRO_ABIERTO:
         raise error(status.HTTP_403_FORBIDDEN, "registro_cerrado",
@@ -105,12 +107,13 @@ def registro(datos: schemas.RegistroEntrada, request: Request, db: Session = Dep
     emitido = sesiones.abrir(db, usuario, request.headers.get("user-agent"))
     db.commit()
     log.info("registro", usuario_id=usuario.id)
-    return tokens(usuario, emitido)
+    return cookie_refresh.entregar(respuesta, en_cookie, tokens(usuario, emitido))
 
 
 @router.post("/login", response_model=schemas.TokensOut,
              dependencies=[Depends(limites.por_ip(limites.LOGIN, "login"))])
-def login(datos: schemas.LoginEntrada, request: Request, db: Session = Depends(get_db)):
+def login(datos: schemas.LoginEntrada, request: Request, respuesta: Response,
+          en_cookie: bool = Depends(modo_cookie), db: Session = Depends(get_db)):
     """Abre una sesión nueva. Mismo error para alias inexistente y contraseña mala."""
     credenciales_invalidas = no_autorizado("credenciales_invalidas", "Alias o contraseña incorrectos")
     limites.comprobar_fallos_login(request)  # antes de gastar CPU en un hash
@@ -141,7 +144,7 @@ def login(datos: schemas.LoginEntrada, request: Request, db: Session = Depends(g
 
     emitido = sesiones.abrir(db, usuario, request.headers.get("user-agent"))
     db.commit()
-    return tokens(usuario, emitido)
+    return cookie_refresh.entregar(respuesta, en_cookie, tokens(usuario, emitido))
 
 
 @router.get("/yo", response_model=schemas.UsuarioOut)
@@ -151,36 +154,55 @@ def yo(usuario: Usuario = Depends(usuario_actual)):
 
 @router.post("/refresh", response_model=schemas.TokensOut,
              dependencies=[Depends(limites.por_ip(limites.REFRESH, "refresh"))])
-def refresh(datos: schemas.RefreshEntrada, request: Request, db: Session = Depends(get_db)):
+def refresh(datos: schemas.RefreshEntrada, request: Request, respuesta: Response,
+            en_cookie: bool = Depends(modo_cookie), db: Session = Depends(get_db)):
     """Cambia el refresh por uno nuevo y entrega un access nuevo.
 
     Repetir el mismo refresh dentro de 120 s (sin haber usado aún el nuevo)
     devuelve el mismo refresh nuevo: reintentos y peticiones simultáneas son
     seguros. Fuera de esa ventana, reusar un refresh cierra la sesión entera.
+
+    En modo cookie (X-Refresh-En-Cookie: 1) se puede enviar {} y el refresh
+    sale de la cookie; si se rechaza, la respuesta borra la cookie.
     """
+    refresh_token = cookie_refresh.refresh_pedido(request, datos, en_cookie)
     try:
-        usuario, emitido = sesiones.rotar(db, datos.refresh_token, request.headers.get("user-agent"))
+        usuario, emitido = sesiones.rotar(db, refresh_token, request.headers.get("user-agent"))
     except sesiones.RefreshRechazado as e:
         db.commit()  # guarda la revocación si fue un reuso
-        if e.estado == status.HTTP_401_UNAUTHORIZED:
-            raise no_autorizado(e.codigo, e.mensaje)
-        raise error(e.estado, e.codigo, e.mensaje)
+        http = (no_autorizado(e.codigo, e.mensaje) if e.estado == status.HTTP_401_UNAUTHORIZED
+                else error(e.estado, e.codigo, e.mensaje))
+        if en_cookie:
+            http.headers = (http.headers or {}) | cookie_refresh.cabeceras_para_borrar()
+        raise http
     db.commit()
-    return tokens(usuario, emitido)
+    return cookie_refresh.entregar(respuesta, en_cookie, tokens(usuario, emitido))
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(datos: schemas.RefreshEntrada, db: Session = Depends(get_db)):
-    """Cierra la sesión de ese refresh. Siempre 204: no revela si existía."""
-    sesiones.cerrar(db, datos.refresh_token)
-    db.commit()
+def logout(datos: schemas.RefreshEntrada, request: Request, respuesta: Response,
+           en_cookie: bool = Depends(modo_cookie), db: Session = Depends(get_db)):
+    """Cierra la sesión de ese refresh. Siempre 204: no revela si existía.
+    En modo cookie, usa el de la cookie (si no viene en el cuerpo) y la borra."""
+    try:
+        refresh_token = cookie_refresh.refresh_pedido(request, datos, en_cookie)
+    except HTTPException:  # modo cookie sin cookie: no hay nada que cerrar
+        refresh_token = None
+    if refresh_token is not None:
+        sesiones.cerrar(db, refresh_token)
+        db.commit()
+    if en_cookie:
+        cookie_refresh.borrar(respuesta)
 
 
 @router.post("/logout-todo", status_code=status.HTTP_204_NO_CONTENT)
-def logout_todo(usuario: Usuario = Depends(usuario_actual), db: Session = Depends(get_db)):
+def logout_todo(respuesta: Response, en_cookie: bool = Depends(modo_cookie),
+                usuario: Usuario = Depends(usuario_actual), db: Session = Depends(get_db)):
     """Cierra todas las sesiones del usuario, incluida esta, al instante."""
     sesiones.cerrar_todas(db, usuario, "logout_todo")
     db.commit()
+    if en_cookie:
+        cookie_refresh.borrar(respuesta)
 
 
 @router.get("/sesiones", response_model=list[schemas.SesionOut])
@@ -198,7 +220,8 @@ def listar_sesiones(actual: SesionActual = Depends(sesion_actual), db: Session =
 
 
 @router.put("/password", response_model=schemas.TokensOut)
-def cambiar_password(datos: schemas.PasswordCambio, request: Request,
+def cambiar_password(datos: schemas.PasswordCambio, request: Request, respuesta: Response,
+                     en_cookie: bool = Depends(modo_cookie),
                      usuario: Usuario = Depends(usuario_actual), db: Session = Depends(get_db)):
     """Cambia la contraseña, cierra todas las sesiones y abre una nueva aquí."""
     # Los fallos cuentan para el bloqueo: con un access robado tampoco se
@@ -216,4 +239,4 @@ def cambiar_password(datos: schemas.PasswordCambio, request: Request,
     sesiones.cerrar_todas(db, usuario, "password")
     emitido = sesiones.abrir(db, usuario, request.headers.get("user-agent"))
     db.commit()
-    return tokens(usuario, emitido)
+    return cookie_refresh.entregar(respuesta, en_cookie, tokens(usuario, emitido))

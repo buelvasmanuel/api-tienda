@@ -1,10 +1,10 @@
-# Desarrollo local con Docker: API + MariaDB, sin instalar Python ni MariaDB.
+# Desarrollo local con Docker: API + MariaDB + Redis, sin instalar Python ni MariaDB.
 #   docker compose up --build     → API en http://localhost:8000/docs
 #   docker compose down           → la para (los datos se conservan)
 #   docker compose down -v        → la para y BORRA los datos (base, modelo, clave)
 # Instrucciones completas: INSTRUCCIONES_PROFESOR.md («Opción Docker»).
-# Solo para local: las contraseñas de aquí son de ejemplo y la base no se
-# publica fuera del ordenador (no tiene puerto en el host).
+# Solo para local: las contraseñas de aquí son de ejemplo y ni la base ni
+# Redis se publican fuera de Docker (no tienen puerto en el host).
 
 services:
   db:
@@ -24,10 +24,24 @@ services:
       retries: 40
       start_period: 10s
 
+  # Contadores del límite por IP (LIMITES_URI). En producción van en memoria:
+  # aquí, en Redis, para ver cómo se compartirían entre varias instancias.
+  # Sin persistencia: al reiniciar, los contadores empiezan de cero (como en memoria).
+  redis:
+    image: redis:8.2-alpine
+    command: [redis-server, --save, "", --appendonly, "no"]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   api:
     build: .
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     environment:
       DB_HOST: db
@@ -35,7 +49,11 @@ services:
       DB_USER: tienda_user
       DB_PASSWORD: tienda_pass_123
       DB_NAME: tienda_db
-      CORS_ORIGINS: "*"
+      # Orígenes explícitos, no "*": con "*" no hay cookies (el refresh en
+      # cookie de la web, CONTRATO_AUTH §6.3). Flutter Web en local:
+      #   flutter run -d chrome --web-port 8080
+      CORS_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      LIMITES_URI: redis://redis:6379/0
       # Para las passkeys desde Flutter Web en local (CONTRATO_PASSKEYS §5),
       # con la app en http://localhost:<puerto>; cambiar el puerto si hace falta.
       PASSKEYS_RP_ID: localhost

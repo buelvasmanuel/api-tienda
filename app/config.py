@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     PASSKEYS_RP_NOMBRE: str = "Estudiantes"
     PASSKEYS_ORIGENES: str = "https://buelvasmanuel.github.io"
 
+    # Dónde viven los contadores del límite por IP (app/limites.py):
+    # "memory://" (en el proceso; producción, con una sola instancia) o
+    # "redis://host:6379" (compartidos entre procesos; Docker local, para
+    # aprender). Cualquier URI que acepte la librería `limits`.
+    LIMITES_URI: str = "memory://"
+
     # Clave maestra de los tokens: 32 bytes en base64url. De ella se derivan la
     # clave de PASETO y la de los refresh (app/seguridad.py). Sin valor por
     # defecto: si falta, la app no arranca. Generar con:
@@ -123,6 +129,13 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip().rstrip("/") for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def origenes_con_credenciales(self) -> list[str]:
+        """Orígenes a los que se permiten cookies (refresh en cookie, CORS con
+        credenciales). Ninguno si CORS_ORIGINS contiene "*": abrir las cookies
+        a cualquier web sería un CSRF servido en bandeja."""
+        return [] if "*" in self.cors_origins else self.cors_origins
 
 
 settings = Settings()
