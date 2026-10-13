@@ -17,7 +17,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app import database, logs
+from app import database, limites, logs
 from app import duelos as reglas
 from app import progreso, schemas
 from app.config import settings
@@ -296,8 +296,12 @@ async def canal(websocket: WebSocket, duelo_id: str):
     # Se acepta antes de rechazar: si se cerrara durante el handshake, el
     # navegador no vería el código 4403, solo un fallo de conexión.
     await websocket.accept()
-    log.info("ws_aceptado", duelo=duelo_id[:8], origin=websocket.headers.get("origin"))
-    if not _origen_permitido(websocket.headers.get("origin")):
+    origen = websocket.headers.get("origin")
+    log.info("ws_aceptado", duelo=duelo_id[:8], origin=origen[:100] if origen else None)
+    if limites.limitador.superado(limites.WS_CONEXIONES, "ws", limites.ip_cliente(websocket)) is not None:
+        await _rechazar(websocket, duelo_id, 4429, "demasiadas_conexiones")
+        return
+    if not _origen_permitido(origen):
         await _rechazar(websocket, duelo_id, 4403, "origen_no_permitido")
         return
     try:

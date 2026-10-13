@@ -54,7 +54,9 @@ def main() -> None:
     if not RUTA_MODELO.exists():
         ejecutar("scripts.entrenar_modelo", "--sin-graficas")
 
-    os.execvp("uvicorn", ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"])
+    # Mismos límites del WebSocket que en producción (render.yaml).
+    os.execvp("uvicorn", ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000",
+                          "--ws-max-size", "65536", "--ws-max-queue", "4"])
 
 
 if __name__ == "__main__":

@@ -13,7 +13,13 @@ services:
       pip install -r requirements.txt &&
       alembic upgrade head &&
       python -m scripts.entrenar_modelo --sin-graficas
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    # --ws-max-size/--ws-max-queue: uvicorn acepta por defecto mensajes de
+    # WebSocket de 16 MiB y guarda 32 por conexión, también antes de
+    # autenticarse: unas pocas conexiones anónimas agotarían los 512 MB.
+    # Ningún mensaje legítimo pasa de 1 KB (auth y ping). Auditoría 2026-10-13.
+    # OJO: Render no relee este comando del YAML; se cambió también en el panel
+    # (API de Render). tests/test_servidor.py comprueba que sigue aquí.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --ws-max-size 65536 --ws-max-queue 4
     healthCheckPath: /
     envVars:
       # sync: false → Render pide el valor en la web; nunca se guarda en el repo.

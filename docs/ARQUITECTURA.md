@@ -82,7 +82,7 @@ api-tienda/
 │   ├── congelar_modelo_juego.py  # regenera app/modelo_juego.json (con commit)
 │   ├── generar_clave.py     # valor para CLAVE_TOKENS
 │   └── crear_usuario.py     # alias + --rol; única forma de crear el primer admin
-├── tests/                 # 600 tests (§8)
+├── tests/                 # 605 tests (§8)
 ├── docs/                  # ARQUITECTURA.md (este archivo), CONTRATO_AUTH.md, CONTRATO_LABORATORIO.md
 ├── .github/workflows/tests.yml  # CI: pytest con mariadb:lts y mysql:8.4
 ├── alembic.ini, pytest.ini, render.yaml, .python-version (3.14.7)
@@ -408,6 +408,7 @@ para no retener una conexión del pool mientras el WebSocket sigue abierto.
 | CORS | `CORS_ORIGINS` obligatoria; métodos y cabeceras explícitos; expone `Retry-After`. Credenciales (cookies) solo con orígenes explícitos: con `*` no hay `allow_credentials` |
 | Refresh en cookie (web, opcional) | Con `X-Refresh-En-Cookie: 1` el refresh va en `__Host-refresh` (`HttpOnly`, `Secure`, `SameSite=None`, `Partitioned`) y el cuerpo trae `null`. Anti-CSRF: partición por web de arriba, preflight obligado por la cabecera propia, `Origin` en `CORS_ORIGINS` (403 `origen_no_permitido`) y cuerpo JSON (415 `json_obligatorio`). Un refresh rechazado borra la cookie. Sin la cabecera, la cookie se ignora (APK igual). CONTRATO_AUTH §6.3 |
 | Passkeys | WebAuthn con la librería `webauthn` (Duo Labs) como forma **adicional** de entrar: RP ID `buelvasmanuel.github.io`, origen `https://buelvasmanuel.github.io`, passkey descubrible y verificación del usuario obligatorias, atestación `none`. Desafíos aleatorios de un solo uso (5 min, `FOR UPDATE`; un intento fallido también gasta el reto). Se rechaza un contador de firmas que retrocede (posible copia). `user.id` de WebAuthn = HMAC del id del usuario (sin datos personales). Cuenta desactivada → 403; restablecer la cuenta borra sus passkeys. Límite de 60/min por IP en `/passkeys/login/*` |
+| WebSocket | Autenticación en el primer mensaje (10 s), `Origin` comprobado, mensajes de **64 KiB como máximo** y cola de 4 (`--ws-max-size`/`--ws-max-queue` en la orden de arranque; por defecto uvicorn aceptaba 16 MiB × 32 antes de autenticar), **120 conexiones/min por IP** (4429). Auditoría 2026-10-13 (§13) |
 | Logs | **structlog en JSON** (Fase 7): cada línea lleva `event`, `level`, `logger`, `momento` y el `request_id` de su petición o WebSocket, que también va en la cabecera `X-Request-ID` (el cliente puede enviar el suyo). Eventos: `peticion` (método, ruta, estado, ms; sustituye al log de acceso de uvicorn, que llevaba la IP), `registro`, `cuenta_bloqueada`, `reuso_de_refresh`, `limite_por_ip_superado`, `demasiados_logins_fallidos`, `admin_*`, `alta_en_lote`, `ws_*`, `error_no_controlado`. **Sin datos personales ni secretos**: ids de usuario (no alias), IPs como hash con clave (`ip_hash`), campos sensibles (`password`, `token`, `alias`…) ocultos y un último filtro que borra tokens e IPs de cualquier texto, también de los mensajes de uvicorn |
 
 ### 5.2 Ataques probados
@@ -432,6 +433,7 @@ para no retener una conexión del pool mientras el WebSocket sigue abierto.
 | Dos respuestas simultáneas del mismo jugador (XP doble) | `test_juego.py::test_dos_respuestas_simultaneas_no_dan_la_xp_dos_veces` |
 | Duelo: ver la carta del rival o las siguientes, jugar fuera de turno, repetir rondas, enviar el ganador, XP por repetición, jugada final doble | `test_duelos.py` |
 | Passkeys: otro origen, otro dominio, sin verificación del usuario, otro desafío, firma de otra clave, contador que retrocede, reto reutilizado / caducado / de otro usuario / de otro tipo, cuenta desactivada, borrar la de otro (autenticador simulado con firmas reales) | `test_passkeys.py` |
+| Mensaje de WebSocket enorme antes de autenticarse (uvicorn real con la orden de `render.yaml` → 1009), conexiones en bucle desde una IP (4429) | `test_servidor.py`, `test_duelos_jugadores.py` |
 | Duelo entre jugadores: emparejarse consigo mismo, dos búsquedas a la vez, jugada y vencimiento a la vez, regalar XP abandonando, WebSocket sin auth / con token caducado / token en la URL / duelo ajeno / origen ajeno | `test_duelos_jugadores.py` |
 
 ---
@@ -517,11 +519,11 @@ ningún valor** (`hide_input_in_errors`): antes, pydantic imprimía el valor
 inválido o, si faltaba una variable, el resto de variables, y eso acababa en
 los logs de Render.
 
-**Tests** (600; `pytest -q` en ~20 s; también pasan contra MySQL 8.4): auth 67,
+**Tests** (605; `pytest -q` en ~25 s; también pasan contra MySQL 8.4): auth 67,
 juego 62, límites 43, estudiantes 42, passkeys 40, duelos 37, laboratorio 35,
 duelos entre jugadores 34, seguridad 33, refresh 33, usuarios 29, logs 26,
 predicción 22, estadísticas 20, predicción del juego 15, modelo de usuarios 15,
-modelo del juego 9, migraciones 1, refresh en cookie 32, límites con Redis 5
+modelo del juego 9, migraciones 1, refresh en cookie 32, límites con Redis 5, servidor 4
 (3 se saltan si no hay Redis; en CI hay uno). Las passkeys se prueban con un autenticador
 simulado (`tests/autenticador.py`) que produce firmas ECDSA reales.
 
@@ -690,3 +692,36 @@ admin en los logs (ya se registran los bloqueos) en lugar de alargar el bloqueo.
       `PATCH /usuarios/2 {"activo": false}` (el ranking queda limpio).
 - [ ] Revocar la API key de Render guardada en `~/.config/render/api_key`
       (panel de Render → Account Settings → API Keys) y borrar el archivo.
+
+## 13. Auditoría de seguridad externa (2026-10-13)
+
+Revisión del backend completo como si fuera de fuera: auth, passkeys, refresh
+en cookie, WebSocket, límites, logs, CORS, dependencias (`pip-audit` 2.10:
+**ninguna vulnerabilidad conocida** en `requirements.txt` ni en
+`requirements-dev.txt`) y la configuración de Render. Ordenada por gravedad.
+
+| # | Gravedad | Hallazgo | Estado |
+|---|---|---|---|
+| A1 | **Alta** | WebSocket: uvicorn aceptaba mensajes de 16 MiB y una cola de 32 por conexión **antes de autenticar**; unas pocas conexiones anónimas podían agotar los 512 MB de Render | **Arreglado**: `--ws-max-size 65536 --ws-max-queue 4` (render.yaml, panel de Render y Docker) y 120 conexiones/min por IP (4429). Tests con uvicorn real |
+| B1 | Media | Registrar una passkey no pide reautenticarse: con un access robado (15 min) se añade una passkey propia, que **sobrevive** a `logout-todo` y al cambio de contraseña del jugador (solo el restablecimiento del admin la borra) | Propuesto: pedir la contraseña actual (o una passkey) al registrar; cambia CONTRATO_PASSKEYS |
+| B2 | Media | La API se conecta a Aiven con `avnadmin` (todos los privilegios del servidor) | Propuesto: usuario propio con permisos solo sobre la base de la app (acción en Aiven) |
+| B3 | Media | Render tiene `autoDeploy: yes` y el build ejecuta `alembic upgrade head`: si la integración con GitHub empieza a funcionar, un push migraría Aiven **sin backup previo** | Propuesto: `autoDeploy: no` (acción en Render) |
+| B4 | Media | Emparejamiento: cada búsqueda ocupa 2 conexiones de base hasta 10 s (`GET_LOCK`); ~7 búsquedas a la vez agotan el pool (5 + 10) y la API entera espera. Basta una cuenta (el registro está abierto) | Propuesto: límite por usuario en `POST /duelos` y espera del candado de 2–3 s |
+| B5 | Baja | `POST /passkeys/registro/opciones` sin límite (crea una fila por llamada) y sin máximo de passkeys por usuario (Aiven free: 1 GB) | Propuesto: límite por usuario y máximo de 10 passkeys |
+| C1 | Baja | Contraseñas sin comprobar contra listas de contraseñas comunes o filtradas | Propuesto: lista local de las 10 000 más comunes |
+| C2 | Baja | `pip-audit` no corre en CI | Propuesto: paso en el workflow (falla si hay vulnerabilidades) |
+| C3 | Baja | Login: cada intento ocupa un hilo mientras espera el semáforo de Argon2 (2 a la vez); muchas IPs a la vez pueden frenar la API | Aceptado (plan gratuito); el techo por IP ya lo limita |
+| C4 | Informativa | Todo `buelvasmanuel.github.io` es **un solo origen**: CORS, passkeys y la cookie confían en cualquier proyecto de GitHub Pages de esa cuenta | No publicar ahí contenido de terceros |
+| C5 | Informativa | `/docs` y `/openapi.json` públicos en producción | Aceptado: los usa el profesor |
+| C6 | Informativa | Tras un logout, el access sigue valiendo hasta 15 min | Diseño (§11) |
+| C7 | Pendiente | La API key de Render (control total de la cuenta) sigue en `~/.config/render/api_key` | Revocarla al terminar |
+
+Comprobado sin hallazgos: SQL siempre parametrizado; PASETO v4.local con
+clave derivada por HKDF; rotación de refresh con detección de reuso;
+Argon2id OWASP; mismo 401 para alias inexistente; cookie `__Host-` con
+`Origin`, JSON y preflight; CORS con credenciales solo con orígenes
+explícitos; WebAuthn con origen, RP ID, verificación de usuario y contador;
+logs sin datos personales ni secretos; TLS a Aiven verificando certificado y
+host; cabeceras de seguridad (HSTS, nosniff, DENY, no-referrer); 422 sin
+`input`; 500 sin detalles; límite de cuerpo de 64 KiB.
+

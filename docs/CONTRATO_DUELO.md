@@ -1,6 +1,6 @@
 # Contrato del Duelo de cartas (Modo 4, Fase 7)
 
-> Contrato entre `api-tienda` y `app_estudiantes`. Versión **2.2**, 2026-10-12 (2.1: mensaje `error` antes de cerrar el WebSocket, §8; 2.2: `xp_hoy` en `GET /duelos`, §4.3):
+> Contrato entre `api-tienda` y `app_estudiantes`. Versión **2.3**, 2026-10-13 (2.1: mensaje `error` antes de cerrar el WebSocket, §8; 2.2: `xp_hoy` en `GET /duelos`, §4.3; 2.3: códigos 4429 y 1009 del WebSocket, §8):
 > duelo contra la máquina (v1) y **jugador contra jugador** (v2, §7 y §8).
 > Autenticación, formato de errores (`{"detail": {"codigo", "mensaje"}}`) e
 > interceptor: CONTRATO_AUTH.md. XP, insignias y ranking: CONTRATO_JUEGO.md.
@@ -351,4 +351,6 @@ no esperar al código de cierre.
 | 4403 | Origen no permitido o cuenta desactivada | No reconectar |
 | 4404 | El duelo no existe o no participas | No reconectar |
 | 4408 | No llegó el mensaje `auth` en 10 s | Reconectar |
+| 4429 | Más de 120 conexiones por minuto desde la misma IP (v2.3) | Reconectar con espera creciente (no en bucle) |
+| 1009 | Mensaje de más de 64 KiB (v2.3; lo corta el servidor, sin mensaje `error` antes) | No debería pasar: los mensajes de la app ocupan menos de 1 KB |
 | 1000/1001/1006 | Cierre normal, servidor reiniciándose o red caída | Reconectar con espera creciente y `GET /duelos/{id}` |

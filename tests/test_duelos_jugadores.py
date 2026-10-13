@@ -334,6 +334,20 @@ def test_ws_origen_no_permitido(ana, emparejados):
         assert cierre(ws) == 4403
 
 
+def test_ws_demasiadas_conexiones_desde_una_ip(ana, emparejados, limite_por_ip, monkeypatch):
+    from limits import parse
+
+    from app import limites
+
+    monkeypatch.setattr(limites, "WS_CONEXIONES", parse("2/minute"))
+    for _ in range(2):
+        with abrir(ana, emparejados) as ws:
+            assert autenticarse(ws, ana.usuario)["tipo"] == "listo"
+
+    with abrir(ana, emparejados) as ws:
+        assert cierre(ws) == 4429
+
+
 def test_ws_origen_permitido(ana, emparejados):
     with abrir(ana, emparejados, headers={"Origin": "https://app.ejemplo.org"}) as ws:
         assert autenticarse(ws, ana.usuario)["tipo"] == "listo"

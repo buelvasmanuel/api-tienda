@@ -20,6 +20,7 @@ import math
 import time
 
 from fastapi import Request
+from starlette.requests import HTTPConnection
 from limits import RateLimitItem, parse
 from limits.storage import storage_from_string
 from limits.strategies import FixedWindowRateLimiter
@@ -34,6 +35,9 @@ LOGIN = parse("120/minute")  # todas las peticiones de login (techo de carga)
 REGISTRO = parse("60/hour")
 REFRESH = parse("300/minute")  # un refresh no se adivina: solo frena abusos de carga
 PASSKEYS = parse("60/minute")  # /passkeys/login/*: sin la clave privada no hay nada que adivinar
+# Conexiones al WebSocket del duelo: una clase entera reconectando cabe de sobra;
+# frena a quien abre conexiones en bucle para gastar memoria (auditoría, 2026-10-13).
+WS_CONEXIONES = parse("120/minute")
 # Logins fallidos (401) por IP. Se comprueba antes de calcular ningún hash.
 FALLOS_LOGIN = parse("30/minute")
 
@@ -65,8 +69,9 @@ class Limitador:
 limitador = Limitador(settings.LIMITES_URI)
 
 
-def ip_cliente(request: Request) -> str:
-    """IP del cliente según IP_CLIENTE (ver app/config.py)."""
+def ip_cliente(request: HTTPConnection) -> str:
+    """IP del cliente según IP_CLIENTE (ver app/config.py). Sirve para
+    peticiones (Request) y para WebSockets."""
     conexion = request.client.host if request.client else "desconocida"
     modo = settings.IP_CLIENTE
     if modo == "conexion":
