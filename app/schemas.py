@@ -584,6 +584,13 @@ class OpcionesPasskeyOut(BaseModel):
     opciones: dict = Field(description="JSON estándar de WebAuthn (creación o petición de credencial)")
 
 
+class OpcionesRegistroPasskeyEntrada(Entrada):
+    """Registrar una passkey pide la contraseña actual (auditoría B1): con un
+    access robado no se puede añadir una passkey que sobreviva al cambio de
+    contraseña ni a cerrar todas las sesiones."""
+    password_actual: str = Field(max_length=128)
+
+
 class RegistroPasskeyEntrada(Entrada):
     reto_id: RetoId
     credencial: dict = Field(description="credential.toJSON() del navegador")

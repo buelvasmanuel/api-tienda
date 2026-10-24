@@ -1,8 +1,21 @@
 # Contrato de autenticación (`/auth` y `/usuarios`)
 
-> Contrato entre `api-tienda` y `app_estudiantes`. Versión **1.3**, 2026-10-13.
+> Contrato entre `api-tienda` y `app_estudiantes`. Versión **1.4**, 2026-10-23.
 > El interceptor de Flutter se implementa leyendo este archivo. Cualquier
 > cambio de la API que lo afecte se hace aquí primero, en el mismo commit.
+
+### Cambios de la v1.4 (auditoría: contraseñas comunes)
+
+| Cambio | Qué toca en el cliente (APK, escritorio y web) |
+|---|---|
+| **`422 password_comun`** al fijar una contraseña que está en la lista de ~10 000 contraseñas más usadas (registro, `PUT /auth/password`, `PUT /usuarios/{id}/password`). Sin distinguir mayúsculas. El detalle trae `"campo"`: `"password"` o `"password_nueva"` | Mostrar el `mensaje` junto a ese campo del formulario. **El login no cambia**: quien ya tenía una contraseña común sigue entrando |
+| `POST /passkeys/registro/opciones` pide la contraseña actual (CONTRATO_PASSKEYS v2) | Solo la web (las passkeys son solo web) |
+
+El `422 password_comun` lleva el formato de errores con código (§2), no la
+lista de FastAPI de los demás 422 de validación:
+```json
+{"detail": {"codigo": "password_comun", "mensaje": "Esa contraseña es demasiado común y se adivina enseguida: elige otra", "campo": "password"}}
+```
 
 ### Cambios de la v1.3 (refresh en cookie para la web)
 
@@ -101,6 +114,7 @@ Los errores de autenticación y de `/usuarios` tienen siempre esta forma:
 | 409 | `no_puedes_modificarte` | Un admin intenta cambiar su propio rol/estado desde `/usuarios` | — |
 | 413 | `cuerpo_demasiado_grande` | Cuerpo de más de 64 KiB (v1.2) | — |
 | 415 | `json_obligatorio` | Modo cookie (§6.3) con un cuerpo que no es `application/json` (v1.3) | Enviar `Content-Type: application/json` |
+| 422 | `password_comun` | Registro, cambio o restablecimiento de contraseña con una de las ~10 000 más usadas; añade `"campo"` (v1.4) | Mostrar el mensaje junto a ese campo |
 | 422 | `carrera_desconocida` | `/prediccion/*` con una carrera que el modelo no conoce; añade `carreras_validas` (y `indices` en el lote) | Mostrar las válidas |
 | 429 | `demasiados_intentos` | Límite por cuenta o por IP superado | Esperar `Retry-After` s; mostrar cuenta atrás. **No** reintentar en bucle |
 | 500 | `error_interno` | Error no controlado del servidor; el detalle solo va al log (v1.2) | «Error interno», reintentar más tarde |
@@ -119,7 +133,8 @@ refresh nuevo. Ver §5.
 Alias       = texto 3–30 caracteres, solo [A-Za-z0-9_]. Único sin distinguir mayúsculas
               ("Ana_01" y "ana_01" son el mismo). Se guarda como se escribió.
 Password    = texto 10–128 caracteres, sin reglas de composición. No puede ser igual
-              al alias (sin distinguir mayúsculas). No se recortan espacios.
+              al alias (sin distinguir mayúsculas). No se recortan espacios. No puede
+              estar en la lista de contraseñas comunes (v1.4: 422 password_comun).
 Rol         = "jugador" | "docente" | "admin"
 Fecha       = texto ISO 8601 en UTC, p. ej. "2026-10-11T18:04:05.123456Z"
 ```
@@ -170,6 +185,7 @@ Cuerpo: `{"alias": Alias, "password": Password}`
 | `201 TokensOut` | Cuenta creada con rol `jugador` y sesión iniciada |
 | `403 registro_cerrado` | El servidor tiene el registro cerrado (`REGISTRO_ABIERTO=false`) |
 | `409 alias_en_uso` | |
+| `422 password_comun` | Contraseña demasiado común, `"campo": "password"` (v1.4; se comprueba antes que el alias) |
 | `422` | Alias/contraseña inválidos, campos extra |
 | `429 demasiados_intentos` | Más de 60 registros por hora desde la misma IP |
 
@@ -239,6 +255,7 @@ Cuerpo: `{"password_actual": str, "password_nueva": Password}`
 |---|---|
 | `200 TokensOut` | Contraseña cambiada; **todas** las sesiones se cierran y se devuelve una nueva para este dispositivo |
 | `403 password_actual_incorrecta` | |
+| `422 password_comun` | Contraseña nueva demasiado común, `"campo": "password_nueva"` (v1.4) |
 | `422` | Contraseña nueva inválida |
 
 ### 4.9 `/usuarios` — gestión (no la usa el juego del jugador)
@@ -247,7 +264,7 @@ Cuerpo: `{"password_actual": str, "password_nueva": Password}`
 |---|---|---|---|
 | `GET /usuarios` | docente, admin | — | `200 list[UsuarioAdminOut]` ordenada por `id` |
 | `PATCH /usuarios/{id}` | admin | `{"rol"?: Rol, "activo"?: bool}` | `200 UsuarioAdminOut`; `404`; `409 no_puedes_modificarte`. Desactivar cierra todas sus sesiones |
-| `PUT /usuarios/{id}/password` | admin | `{"password_nueva": Password}` | `204`; cierra todas sus sesiones. Es la forma de recuperar una cuenta (no hay email) |
+| `PUT /usuarios/{id}/password` | admin | `{"password_nueva": Password}` | `204`; cierra todas sus sesiones y borra sus passkeys. Es la forma de recuperar una cuenta (no hay email). `422 password_comun` (v1.4) |
 | `POST /usuarios/lote` | docente, admin | `{"aliases": [Alias, …]}` (1–40, sin repetir) | `201 {"cuentas": [{"id", "alias", "password"}]}`; `409 alias_en_uso` con `"aliases"`; `422` |
 
 **Alta en lote** (`POST /usuarios/lote`): crea cuentas de **jugador** con una

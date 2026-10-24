@@ -296,7 +296,7 @@ flutter run -d windows
 Alternativa en el navegador: `flutter run -d chrome`.
 
 Al abrir la app, pulse **«¿No tienes cuenta? Regístrate»** y cree un alias y
-una contraseña (mínimo 10 caracteres).
+una contraseña (mínimo 10 caracteres y que no sea de las más comunes, como `1234567890`).
 
 **Celular Android por USB** (depuración USB activada; `adb` viene con Android Studio, en `%LOCALAPPDATA%\Android\Sdk\platform-tools`):
 
@@ -406,7 +406,7 @@ flutter run -d linux        # o: flutter run -d chrome
 ```
 
 Al abrir la app, pulse **«¿No tienes cuenta? Regístrate»** y cree un alias y
-una contraseña (mínimo 10 caracteres). En Linux la sesión se guarda en el
+una contraseña (mínimo 10 caracteres y que no sea de las más comunes, como `1234567890`). En Linux la sesión se guarda en el
 llavero del sistema (`libsecret`).
 
 **Celular Android por USB:**
@@ -438,7 +438,7 @@ FLUSH PRIVILEGES;
 ```
 
 ```bash
-pytest           # en api-tienda, con el venv activado → 610 passed, 3 skipped
+pytest           # en api-tienda, con el venv activado → 638 passed, 3 skipped
 flutter test     # en app_estudiantes → 246 tests passed
 ```
 

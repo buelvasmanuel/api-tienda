@@ -1,8 +1,18 @@
 # Contrato de Passkeys (entrar sin contraseña)
 
-> Contrato entre `api-tienda` y `app_estudiantes`. Versión **1.2**, 2026-10-23
+> Contrato entre `api-tienda` y `app_estudiantes`. Versión **2**, 2026-10-23
 > (v1.1: el login con passkey admite el refresh en cookie, CONTRATO_AUTH §6.3;
-> v1.2: máximo de 10 passkeys por jugador y límite de 20 registros por hora, §2).
+> v1.2: máximo de 10 passkeys por jugador y límite de 20 registros por hora, §2;
+> **v2: registrar una passkey pide la contraseña actual, §2.1** — no compatible
+> con la v1: sin ella, las opciones de registro dan `422`).
+
+### Cambios de la v2 (auditoría B1)
+
+Con un access robado (válido 15 min) se podía añadir una passkey propia a la
+cuenta de otro, y esa passkey **sobrevivía** a «cerrar todas las sesiones» y
+al cambio de contraseña. Ahora `POST /passkeys/registro/opciones` exige la
+contraseña actual (como `PUT /auth/password`): quien solo tiene el token no
+puede registrar nada. El resto (verificación, login, listar, borrar) no cambia.
 > Autenticación, tokens, errores e interceptor: [CONTRATO_AUTH.md](CONTRATO_AUTH.md).
 > **Solo web por ahora** (Android, más adelante y opcional).
 
@@ -42,7 +52,7 @@ Dos pasos: pedir las opciones y enviar lo que crea el navegador.
 
 ### 2.1 `POST /passkeys/registro/opciones` — autenticado
 
-Sin cuerpo →
+Cuerpo (v2): `{"password_actual": str}` (hasta 128 caracteres) →
 ```json
 {
   "reto_id": "c1a9…(32 hex)",
@@ -59,6 +69,9 @@ Sin cuerpo →
 
 | Error | Cuándo |
 |---|---|
+| `403 password_actual_incorrecta` | La contraseña no es la tuya (v2). Cuenta para el bloqueo de la cuenta, como en el login |
+| `429 demasiados_intentos` | Cuenta bloqueada por fallos de contraseña (5 seguidos: 30 s, después 1 min), con `Retry-After` |
+| `422` | Falta `password_actual`, es demasiado larga o hay campos de más |
 | `409 demasiadas_passkeys` | Ya tienes **10** passkeys (v1.2): borra alguna para añadir otra |
 | `429 demasiados_intentos` | Más de **20** opciones de registro por hora (v1.2), con `Retry-After` |
 
@@ -136,8 +149,8 @@ Con navegadores actuales (Chrome/Edge 129+, Firefox 119+, Safari 18.4+), sin
 librerías:
 
 ```js
-// Registrar (con sesión):
-const {reto_id, opciones} = await post("/passkeys/registro/opciones");
+// Registrar (con sesión; v2: pedir antes la contraseña en un diálogo):
+const {reto_id, opciones} = await post("/passkeys/registro/opciones", {password_actual});
 const cred = await navigator.credentials.create({
   publicKey: PublicKeyCredential.parseCreationOptionsFromJSON(opciones)});
 await post("/passkeys/registro/verificacion", {reto_id, credencial: cred.toJSON(), nombre});

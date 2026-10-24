@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 from app import seguridad
+from app.contrasenas import es_comun
 from app.database import SessionLocal
 from app.models import ROLES, Usuario
 from app.schemas import RegistroEntrada
@@ -44,6 +45,8 @@ def main() -> None:
         datos = RegistroEntrada(alias=args.alias, password=pedir_password())
     except ValidationError as e:
         sys.exit("Datos no válidos:\n" + "\n".join(f"- {err['msg']}" for err in e.errors()))
+    if es_comun(datos.password):
+        sys.exit("Esa contraseña es demasiado común y se adivina enseguida: elige otra.")
 
     with SessionLocal() as db:
         if db.scalar(select(Usuario.id).where(Usuario.alias == datos.alias)) is not None:

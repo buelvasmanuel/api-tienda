@@ -4,13 +4,13 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import cookie_refresh, limites, logs, schemas, sesiones
+from app import cookie_refresh, limites, logs, schemas, seguridad, sesiones
 from app import passkeys as reglas
 from app.database import get_db
 from app.dependencias import usuario_actual
 from app.errores import error, no_autorizado
 from app.models import Passkey, Usuario
-from app.routers.auth import tokens
+from app.routers.auth import comprobar_bloqueo, registrar_acierto, registrar_fallo, tokens
 
 log = logs.obtener("app.auth")
 
@@ -36,7 +36,17 @@ def passkey_out(p: Passkey) -> schemas.PasskeyOut:
 
 @router.post("/registro/opciones", response_model=schemas.OpcionesPasskeyOut,
              dependencies=[Depends(limites.por_usuario(limites.PASSKEYS_REGISTRO, "passkeys-registro"))])
-def opciones_registro(usuario: Usuario = Depends(usuario_actual), db: Session = Depends(get_db)):
+def opciones_registro(datos: schemas.OpcionesRegistroPasskeyEntrada, usuario: Usuario = Depends(usuario_actual),
+                      db: Session = Depends(get_db)):
+    # Como en PUT /auth/password: los fallos cuentan para el bloqueo de la
+    # cuenta, así que con un access robado tampoco se adivina por fuerza bruta.
+    comprobar_bloqueo(usuario)
+    if not seguridad.verificar_password(usuario.hash_password, datos.password_actual):
+        registrar_fallo(usuario)
+        db.commit()
+        log.info("passkey_rechazada", paso="opciones", codigo="password_actual_incorrecta", usuario_id=usuario.id)
+        raise error(status.HTTP_403_FORBIDDEN, "password_actual_incorrecta", "La contraseña actual no es correcta")
+    registrar_acierto(usuario)
     try:
         reto_id, opciones = reglas.opciones_registro(db, usuario)
     except reglas.PasskeyRechazada as e:

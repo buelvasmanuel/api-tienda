@@ -27,6 +27,13 @@ def demasiados_intentos(segundos: int) -> HTTPException:
     )
 
 
+def password_comun(campo: str) -> HTTPException:
+    """422 con código (CONTRATO_AUTH §2): la contraseña está en la lista de
+    contraseñas comunes (app/contrasenas.py). `campo` dice cuál del cuerpo."""
+    return error(422, "password_comun",
+                 "Esa contraseña es demasiado común y se adivina enseguida: elige otra", campo=campo)
+
+
 def validacion_password_igual_al_alias(campo: str) -> RequestValidationError:
     """422 con el mismo formato que cualquier error de validación de FastAPI,
     sin repetir la contraseña en la respuesta."""

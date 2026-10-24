@@ -9,6 +9,8 @@ from app.models import Passkey, RetoWebAuthn
 from tests.autenticador import Autenticador, b64url
 from tests.ayudas import PASSWORD, cabeceras, codigo
 
+CON_PASSWORD = {"password_actual": PASSWORD}  # registrar una passkey pide la contraseña (auditoría B1)
+
 
 @pytest.fixture
 def jugador(client, crear_usuario):
@@ -19,7 +21,7 @@ def jugador(client, crear_usuario):
 
 
 def registrar(client, autenticador, nombre=None, **trampas):
-    datos = client.post("/passkeys/registro/opciones").json()
+    datos = client.post("/passkeys/registro/opciones", json=CON_PASSWORD).json()
     credencial = autenticador.crear(datos["opciones"], **trampas)
     cuerpo = {"reto_id": datos["reto_id"], "credencial": credencial} | ({"nombre": nombre} if nombre else {})
     return client.post("/passkeys/registro/verificacion", json=cuerpo)
@@ -42,7 +44,7 @@ def con_passkey(jugador):
 # ---------- Registro ----------
 
 def test_opciones_de_registro(jugador):
-    respuesta = jugador.post("/passkeys/registro/opciones")
+    respuesta = jugador.post("/passkeys/registro/opciones", json=CON_PASSWORD)
 
     assert respuesta.status_code == 200 and respuesta.headers["Cache-Control"] == "no-store"
     datos = respuesta.json()
@@ -56,7 +58,7 @@ def test_opciones_de_registro(jugador):
 
 
 def test_el_user_id_de_webauthn_no_lleva_datos_personales(jugador):
-    opciones = jugador.post("/passkeys/registro/opciones").json()["opciones"]
+    opciones = jugador.post("/passkeys/registro/opciones", json=CON_PASSWORD).json()["opciones"]
 
     assert opciones["user"]["id"] == b64url(seguridad.identificador_webauthn(jugador.usuario.id))
     # Ni el id tal cual ni el alias: un HMAC opaco de 32 bytes.
@@ -81,11 +83,11 @@ def test_nombre_por_defecto(jugador):
 
 
 def test_registrar_exige_sesion(client):
-    assert codigo(client.post("/passkeys/registro/opciones")) == "no_autenticado"
+    assert codigo(client.post("/passkeys/registro/opciones", json=CON_PASSWORD)) == "no_autenticado"
 
 
 def test_las_ya_registradas_van_excluidas(jugador, con_passkey):
-    opciones = jugador.post("/passkeys/registro/opciones").json()["opciones"]
+    opciones = jugador.post("/passkeys/registro/opciones", json=CON_PASSWORD).json()["opciones"]
 
     assert [c["id"] for c in opciones["excludeCredentials"]] == [b64url(con_passkey.credencial_id)]
 
@@ -109,7 +111,7 @@ def test_registro_rechazado(jugador, trampa):
 
 
 def test_el_reto_de_registro_es_de_un_solo_uso(jugador):
-    datos = jugador.post("/passkeys/registro/opciones").json()
+    datos = jugador.post("/passkeys/registro/opciones", json=CON_PASSWORD).json()
     credencial = Autenticador().crear(datos["opciones"])
     cuerpo = {"reto_id": datos["reto_id"], "credencial": credencial}
 
@@ -119,7 +121,7 @@ def test_el_reto_de_registro_es_de_un_solo_uso(jugador):
 
 
 def test_un_reto_fallido_tambien_queda_gastado(jugador):
-    datos = jugador.post("/passkeys/registro/opciones").json()
+    datos = jugador.post("/passkeys/registro/opciones", json=CON_PASSWORD).json()
     autenticador = Autenticador()
     mala = autenticador.crear(datos["opciones"], origen="https://phishing.example")
     buena = autenticador.crear(datos["opciones"])
@@ -131,7 +133,7 @@ def test_un_reto_fallido_tambien_queda_gastado(jugador):
 
 
 def test_el_reto_de_registro_es_del_usuario_que_lo_pidio(jugador, client, crear_usuario):
-    datos = jugador.post("/passkeys/registro/opciones").json()
+    datos = jugador.post("/passkeys/registro/opciones", json=CON_PASSWORD).json()
     otro = cabeceras(crear_usuario("Otro_1"))
 
     respuesta = client.post("/passkeys/registro/verificacion", headers=otro,
@@ -141,7 +143,7 @@ def test_el_reto_de_registro_es_del_usuario_que_lo_pidio(jugador, client, crear_
 
 
 def test_el_reto_caduca_a_los_5_minutos(jugador, reloj):
-    datos = jugador.post("/passkeys/registro/opciones").json()
+    datos = jugador.post("/passkeys/registro/opciones", json=CON_PASSWORD).json()
     reloj.avanzar(minutes=5)
     jugador.headers.update(cabeceras(jugador.usuario))
 
@@ -159,7 +161,7 @@ def test_cuerpo_mal_formado(jugador, cuerpo):
 
 
 def test_credencial_basura(jugador):
-    datos = jugador.post("/passkeys/registro/opciones").json()
+    datos = jugador.post("/passkeys/registro/opciones", json=CON_PASSWORD).json()
 
     respuesta = jugador.post("/passkeys/registro/verificacion",
                              json={"reto_id": datos["reto_id"], "credencial": {"id": "x", "response": "basura"}})
@@ -237,7 +239,7 @@ def test_el_reto_de_login_es_de_un_solo_uso(jugador, con_passkey):
 
 
 def test_un_reto_de_registro_no_sirve_para_entrar(jugador, con_passkey):
-    reto_id = jugador.post("/passkeys/registro/opciones").json()["reto_id"]
+    reto_id = jugador.post("/passkeys/registro/opciones", json=CON_PASSWORD).json()["reto_id"]
     opciones = jugador.post("/passkeys/login/opciones").json()["opciones"]
 
     respuesta = jugador.post("/passkeys/login/verificacion",
@@ -321,13 +323,50 @@ def test_el_login_con_contrasena_sigue_igual(jugador, con_passkey):
     assert respuesta.status_code == 200 and respuesta.json()["usuario"]["alias"] == "Detective_Ana"
 
 
+# ---------- Reautenticación (auditoría B1) ----------
+
+def test_registrar_pide_la_contrasena_actual(jugador, db_session):
+    respuesta = jugador.post("/passkeys/registro/opciones", json={"password_actual": "no-es-la-clave"})
+
+    assert respuesta.status_code == 403
+    assert codigo(respuesta) == "password_actual_incorrecta"
+    assert db_session.scalar(select(RetoWebAuthn).where(RetoWebAuthn.usuario_id == jugador.usuario.id)) is None
+
+
+@pytest.mark.parametrize("cuerpo", [None, {}, {"password_actual": "x" * 129}, {"password_actual": PASSWORD, "otro": 1}])
+def test_opciones_de_registro_sin_contrasena_valida(jugador, cuerpo):
+    assert jugador.post("/passkeys/registro/opciones", json=cuerpo).status_code == 422
+
+
+def test_un_access_robado_no_basta_para_anadir_una_passkey(jugador):
+    """El caso de la auditoría: quien solo tiene el token no sabe la contraseña."""
+    for _ in range(4):
+        jugador.post("/passkeys/registro/opciones", json={"password_actual": f"adivinanza-{_}"})
+    # Los fallos cuentan para el bloqueo de la cuenta, como en PUT /auth/password.
+    jugador.post("/passkeys/registro/opciones", json={"password_actual": "adivinanza-5"})
+
+    respuesta = jugador.post("/passkeys/registro/opciones", json=CON_PASSWORD)
+
+    assert respuesta.status_code == 429
+    assert codigo(respuesta) == "demasiados_intentos"
+
+
+def test_acertar_la_contrasena_pone_a_cero_los_fallos(jugador, db_session):
+    for _ in range(4):
+        jugador.post("/passkeys/registro/opciones", json={"password_actual": "no-es-la-clave"})
+
+    assert jugador.post("/passkeys/registro/opciones", json=CON_PASSWORD).status_code == 200
+    db_session.refresh(jugador.usuario)
+    assert jugador.usuario.intentos_fallidos == 0
+
+
 # ---------- Límites (auditoría B5) ----------
 
 def test_maximo_10_passkeys_por_usuario(jugador):
     for _ in range(10):
         assert registrar(jugador, Autenticador()).status_code == 201
 
-    respuesta = jugador.post("/passkeys/registro/opciones")
+    respuesta = jugador.post("/passkeys/registro/opciones", json=CON_PASSWORD)
 
     assert respuesta.status_code == 409
     assert codigo(respuesta) == "demasiadas_passkeys"
@@ -341,7 +380,7 @@ def test_el_maximo_se_comprueba_tambien_al_verificar(jugador):
     verificación también cuenta."""
     for _ in range(9):
         registrar(jugador, Autenticador())
-    datos = jugador.post("/passkeys/registro/opciones").json()
+    datos = jugador.post("/passkeys/registro/opciones", json=CON_PASSWORD).json()
     assert registrar(jugador, Autenticador()).status_code == 201  # la 10.ª, con otras opciones
 
     respuesta = jugador.post("/passkeys/registro/verificacion",
@@ -355,11 +394,11 @@ def test_limite_de_opciones_de_registro_por_usuario(jugador, client, crear_usuar
     from app import limites
 
     for _ in range(limites.PASSKEYS_REGISTRO.amount):
-        assert jugador.post("/passkeys/registro/opciones").status_code == 200
+        assert jugador.post("/passkeys/registro/opciones", json=CON_PASSWORD).status_code == 200
 
-    respuesta = jugador.post("/passkeys/registro/opciones")
+    respuesta = jugador.post("/passkeys/registro/opciones", json=CON_PASSWORD)
 
     assert respuesta.status_code == 429
     assert codigo(respuesta) == "demasiados_intentos"
     otro = crear_usuario("Detective_Beto")
-    assert client.post("/passkeys/registro/opciones", headers=cabeceras(otro)).status_code == 200
+    assert client.post("/passkeys/registro/opciones", json=CON_PASSWORD, headers=cabeceras(otro)).status_code == 200

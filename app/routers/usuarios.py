@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from app import logs, passkeys, schemas, seguridad, sesiones
 from app.database import get_db
 from app.dependencias import requiere_rol
-from app.errores import error, validacion_password_igual_al_alias
+from app.contrasenas import es_comun
+from app.errores import error, password_comun, validacion_password_igual_al_alias
 from app.models import Usuario
 from app.routers.auth import registrar_acierto
 
@@ -66,6 +67,8 @@ def restablecer_password(usuario_id: int, datos: schemas.PasswordAdmin,
     usuario = _objetivo(usuario_id, admin, db)
     if schemas.password_igual_al_alias(datos.password_nueva, usuario.alias):
         raise validacion_password_igual_al_alias("password_nueva")
+    if es_comun(datos.password_nueva):
+        raise password_comun("password_nueva")
     usuario.hash_password = seguridad.hashear_password(datos.password_nueva)
     registrar_acierto(usuario)  # quita un posible bloqueo por fuerza bruta
     sesiones.cerrar_todas(db, usuario, "password")

@@ -13,7 +13,8 @@ from app.config import settings
 from app.database import get_db
 from app.cookie_refresh import modo_cookie
 from app.dependencias import SesionActual, sesion_actual, usuario_actual
-from app.errores import demasiados_intentos, error, no_autorizado, validacion_password_igual_al_alias
+from app.contrasenas import es_comun
+from app.errores import demasiados_intentos, error, no_autorizado, password_comun, validacion_password_igual_al_alias
 from app.models import Usuario
 
 log = logs.obtener("app.auth")
@@ -92,6 +93,8 @@ def registro(datos: schemas.RegistroEntrada, request: Request, respuesta: Respon
     if not settings.REGISTRO_ABIERTO:
         raise error(status.HTTP_403_FORBIDDEN, "registro_cerrado",
                     "El registro está cerrado: pide una cuenta a tu docente")
+    if es_comun(datos.password):
+        raise password_comun("password")
     # Se comprueba antes de calcular el hash para no gastar CPU en balde.
     if db.scalar(select(Usuario.id).where(Usuario.alias == datos.alias)) is not None:
         raise _alias_en_uso()
@@ -233,6 +236,8 @@ def cambiar_password(datos: schemas.PasswordCambio, request: Request, respuesta:
         raise error(status.HTTP_403_FORBIDDEN, "password_actual_incorrecta", "La contraseña actual no es correcta")
     if schemas.password_igual_al_alias(datos.password_nueva, usuario.alias):
         raise validacion_password_igual_al_alias("password_nueva")
+    if es_comun(datos.password_nueva):
+        raise password_comun("password_nueva")
 
     registrar_acierto(usuario)
     usuario.hash_password = seguridad.hashear_password(datos.password_nueva)
