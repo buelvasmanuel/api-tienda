@@ -1,6 +1,7 @@
 """Duelo entre dos jugadores (CONTRATO_DUELO v2, §7 y §8): emparejamiento,
 turnos con tiempo, abandonos, XP, WebSocket de avisos y concurrencia."""
 
+import threading
 from datetime import timedelta
 
 import pytest
@@ -259,6 +260,55 @@ def test_abandonar_tarde_da_la_xp_al_otro(ana, beto, emparejados):
     assert ana.ver(emparejados).json()["xp_ganada"] == 40
     assert ana.http.get("/juego/progreso").json()["racha_dias"] == 1
     assert beto.http.get("/juego/progreso").json()["racha_dias"] == 0  # abandonar no cuenta como actividad
+
+
+# ---------- Límites (auditoría B4) ----------
+
+def test_limite_de_duelos_nuevos_por_usuario(ana, beto, estudiantes, limite_por_ip):
+    from app import limites
+
+    for _ in range(limites.DUELOS_NUEVOS.amount):  # 20 por minuto: el uso normal no llega
+        assert ana.http.post("/duelos", json={"modo": "maquina"}).status_code == 201
+
+    respuesta = ana.http.post("/duelos", json={"modo": "maquina"})
+
+    assert respuesta.status_code == 429
+    assert codigo(respuesta) == "demasiados_intentos"
+    assert int(respuesta.headers["Retry-After"]) >= 1
+    assert beto.buscar().status_code == 201  # el límite es de cada usuario
+
+
+def test_emparejamiento_lleno_responde_503(ana, estudiantes, monkeypatch):
+    from app.routers import duelos as router_duelos
+
+    lleno = threading.BoundedSemaphore(1)
+    lleno.acquire()  # otra búsqueda ocupa el único hueco
+    monkeypatch.setattr(router_duelos, "EMPAREJANDO", lleno)
+    monkeypatch.setattr(router_duelos, "ESPERA_EMPAREJAMIENTO", 0.05)
+
+    respuesta = ana.buscar()
+
+    assert respuesta.status_code == 503
+    assert codigo(respuesta) == "emparejamiento_ocupado"
+    assert ana.http.post("/duelos", json={"modo": "maquina"}).status_code == 201  # la máquina no hace cola
+
+
+def test_el_hueco_se_libera_tras_cada_busqueda(ana, beto, estudiantes, monkeypatch):
+    from app.routers import duelos as router_duelos
+
+    monkeypatch.setattr(router_duelos, "EMPAREJANDO", threading.BoundedSemaphore(1))
+    monkeypatch.setattr(router_duelos, "ESPERA_EMPAREJAMIENTO", 0.05)
+
+    assert ana.buscar().status_code == 201
+    assert beto.buscar().json()["estado"] == "en_juego"  # el hueco quedó libre
+    assert codigo(ana.buscar()) == "duelo_en_curso"  # con un error dentro también se libera:
+    assert codigo(ana.buscar()) == "duelo_en_curso"  # la siguiente no recibe 503
+
+
+def test_el_candado_espera_3_s_como_maximo():
+    import inspect
+
+    assert inspect.signature(reglas.candado).parameters["segundos"].default == 3
 
 
 # ---------- WebSocket ----------

@@ -34,9 +34,13 @@ def passkey_out(p: Passkey) -> schemas.PasskeyOut:
                               sincronizada=p.sincronizada)
 
 
-@router.post("/registro/opciones", response_model=schemas.OpcionesPasskeyOut)
+@router.post("/registro/opciones", response_model=schemas.OpcionesPasskeyOut,
+             dependencies=[Depends(limites.por_usuario(limites.PASSKEYS_REGISTRO, "passkeys-registro"))])
 def opciones_registro(usuario: Usuario = Depends(usuario_actual), db: Session = Depends(get_db)):
-    reto_id, opciones = reglas.opciones_registro(db, usuario)
+    try:
+        reto_id, opciones = reglas.opciones_registro(db, usuario)
+    except reglas.PasskeyRechazada as e:
+        raise _http(e)
     db.commit()
     return schemas.OpcionesPasskeyOut(reto_id=reto_id, opciones=opciones)
 

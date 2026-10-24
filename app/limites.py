@@ -19,7 +19,7 @@ atributos internos para calcular el Retry-After.
 import math
 import time
 
-from fastapi import Request
+from fastapi import Depends, Request
 from starlette.requests import HTTPConnection
 from limits import RateLimitItem, parse
 from limits.storage import storage_from_string
@@ -27,7 +27,9 @@ from limits.strategies import FixedWindowRateLimiter
 
 from app import logs
 from app.config import settings
+from app.dependencias import usuario_actual
 from app.errores import demasiados_intentos
+from app.models import Usuario
 
 log = logs.obtener("app.auth")
 
@@ -38,6 +40,10 @@ PASSKEYS = parse("60/minute")  # /passkeys/login/*: sin la clave privada no hay 
 # Conexiones al WebSocket del duelo: una clase entera reconectando cabe de sobra;
 # frena a quien abre conexiones en bucle para gastar memoria (auditoría, 2026-10-13).
 WS_CONEXIONES = parse("120/minute")
+# Por usuario (auditoría 2026-10-13, B4 y B5): frenan a una cuenta que repite
+# una operación cara en bucle. El uso normal no se acerca.
+DUELOS_NUEVOS = parse("20/minute")  # POST /duelos (buscar rival ocupa conexiones de la base)
+PASSKEYS_REGISTRO = parse("20/hour")  # POST /passkeys/registro/opciones (cada una crea un desafío)
 # Logins fallidos (401) por IP. Se comprueba antes de calcular ningún hash.
 FALLOS_LOGIN = parse("30/minute")
 
@@ -102,6 +108,19 @@ def por_ip(limite: RateLimitItem, espacio: str):
         segundos = limitador.superado(limite, espacio, ip_cliente(request))
         if segundos is not None:
             raise _rechazar(request, "limite_por_ip_superado", segundos)
+
+    return comprobar
+
+
+def por_usuario(limite: RateLimitItem, espacio: str):
+    """Dependencia: 429 si este usuario supera `limite` en esa operación.
+    Va después de la autenticación (necesita el usuario)."""
+
+    def comprobar(usuario: Usuario = Depends(usuario_actual)) -> None:
+        segundos = limitador.superado(limite, espacio, f"usuario:{usuario.id}")
+        if segundos is not None:
+            log.warning("limite_por_usuario_superado", usuario_id=usuario.id, operacion=espacio)
+            raise demasiados_intentos(segundos)
 
     return comprobar
 

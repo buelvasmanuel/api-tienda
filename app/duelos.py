@@ -232,7 +232,7 @@ def crear_contra_maquina(db: Session, usuario_id: int) -> Duelo:
 
 
 @contextmanager
-def candado(db: Session, nombre: str, segundos: int = 10):
+def candado(db: Session, nombre: str, segundos: int = 3):
     """Candado con nombre de MySQL/MariaDB (GET_LOCK): pone en fila a quien lo
     pida, aunque no haya ninguna fila que bloquear (la cola puede estar vacía).
 
@@ -240,6 +240,9 @@ def candado(db: Session, nombre: str, segundos: int = 10):
     propia, abierta aquí y soltada aquí: la de la sesión se devuelve al pool
     en cada commit, y un RELEASE_LOCK hecho después iría a otra conexión y
     dejaría el candado cogido para siempre (pasó en producción).
+
+    Espera 3 s como máximo (antes 10): mientras espera ocupa una conexión del
+    pool, y el emparejamiento real tarda milisegundos (auditoría B4).
     """
     vinculo = db.get_bind()
     motor = getattr(vinculo, "engine", vinculo)  # en los tests la sesión va atada a una Connection

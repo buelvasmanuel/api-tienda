@@ -1,7 +1,8 @@
 # Contrato de Passkeys (entrar sin contraseña)
 
-> Contrato entre `api-tienda` y `app_estudiantes`. Versión **1.1**, 2026-10-13
-> (v1.1: el login con passkey admite el refresh en cookie, CONTRATO_AUTH §6.3).
+> Contrato entre `api-tienda` y `app_estudiantes`. Versión **1.2**, 2026-10-23
+> (v1.1: el login con passkey admite el refresh en cookie, CONTRATO_AUTH §6.3;
+> v1.2: máximo de 10 passkeys por jugador y límite de 20 registros por hora, §2).
 > Autenticación, tokens, errores e interceptor: [CONTRATO_AUTH.md](CONTRATO_AUTH.md).
 > **Solo web por ahora** (Android, más adelante y opcional).
 
@@ -56,6 +57,11 @@ Sin cuerpo →
 ```
 `opciones` es el JSON estándar de WebAuthn (`PublicKeyCredentialCreationOptionsJSON`).
 
+| Error | Cuándo |
+|---|---|
+| `409 demasiadas_passkeys` | Ya tienes **10** passkeys (v1.2): borra alguna para añadir otra |
+| `429 demasiados_intentos` | Más de **20** opciones de registro por hora (v1.2), con `Retry-After` |
+
 ### 2.2 `POST /passkeys/registro/verificacion` — autenticado
 
 ```json
@@ -69,6 +75,7 @@ Sin cuerpo →
 | `401 reto_invalido` | El `reto_id` no existe, ya se usó, caducó o es de otro usuario o de otro tipo |
 | `422 passkey_invalida` | La respuesta del navegador no es válida: otro origen u otro dominio, sin verificación del usuario, desafío distinto, formato roto… |
 | `409 passkey_repetida` | Esa passkey ya está registrada |
+| `409 demasiadas_passkeys` | Llegaste a 10 passkeys entre las opciones y la verificación (v1.2) |
 | `422` estándar | Cuerpo mal formado |
 
 **`PasskeyOut`**

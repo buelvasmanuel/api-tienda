@@ -10,6 +10,7 @@ sigue entrando por REST.
 """
 
 import asyncio
+import threading
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Response, WebSocket, WebSocketDisconnect, status
@@ -34,6 +35,14 @@ router = APIRouter(prefix="/duelos", tags=["Duelo"])
 con_sesion = [Depends(usuario_actual)]
 
 ESPERA_AUTENTICACION = 10  # segundos para enviar {"tipo": "auth"} tras abrir el WebSocket
+
+# Búsquedas de rival a la vez en este proceso (auditoría B4). Cada una usa dos
+# conexiones de la base (la de la petición y la del candado) y el pool tiene
+# 5 + 10: sin este tope, unas pocas búsquedas simultáneas lo agotaban y toda
+# la API se quedaba esperando. Las que no caben esperan aquí (sin conexión)
+# hasta ESPERA_EMPAREJAMIENTO s y después reciben 503 emparejamiento_ocupado.
+EMPAREJANDO = threading.BoundedSemaphore(3)
+ESPERA_EMPAREJAMIENTO = 3
 
 
 # ---------- Respuesta desde el punto de vista de quien pregunta ----------
@@ -131,22 +140,36 @@ def _con_plazos(db: Session, duelo_id: str, usuario_id: int) -> Duelo:
 
 # ---------- REST ----------
 
-@router.post("", response_model=schemas.DueloOut, status_code=status.HTTP_201_CREATED, dependencies=con_sesion)
+@router.post("", response_model=schemas.DueloOut, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(limites.por_usuario(limites.DUELOS_NUEVOS, "duelos-nuevos"))])
 def crear(datos: schemas.NuevoDueloEntrada, respuesta: Response, usuario: Usuario = Depends(usuario_actual),
           db: Session = Depends(get_db)):
-    bloquear_usuario(db, usuario)  # dos "nuevo duelo" a la vez del mismo jugador van en fila
-    try:
-        if datos.modo == "maquina":
+    if datos.modo == "maquina":
+        bloquear_usuario(db, usuario)  # dos "nuevo duelo" a la vez del mismo jugador van en fila
+        try:
             duelo, nuevo = reglas.crear_contra_maquina(db, usuario.id), True
-        else:
+        except reglas.JugadaInvalida as e:
+            db.rollback()
+            raise _http(e)
+    else:
+        # Suelta la conexión antes de esperar turno en EMPAREJANDO.
+        db.commit()
+        if not EMPAREJANDO.acquire(timeout=ESPERA_EMPAREJAMIENTO):
+            log.warning("emparejamiento_lleno", usuario_id=usuario.id)
+            raise _http(reglas.JugadaInvalida(503, "emparejamiento_ocupado",
+                                              "Hay mucha gente buscando rival: inténtalo de nuevo"))
+        try:
+            bloquear_usuario(db, usuario)
             # El candado pone en fila a todos los que buscan rival: dos que buscan
             # a la vez se emparejan entre sí en vez de quedarse los dos esperando.
             with reglas.candado(db, reglas.CANDADO_EMPAREJAMIENTO):
                 duelo, nuevo = reglas.buscar_rival(db, usuario.id)
                 db.commit()
-    except reglas.JugadaInvalida as e:
-        db.rollback()
-        raise _http(e)
+        except reglas.JugadaInvalida as e:
+            db.rollback()
+            raise _http(e)
+        finally:
+            EMPAREJANDO.release()
     db.commit()
     if not nuevo:
         respuesta.status_code = status.HTTP_200_OK  # ya estaba esperando: el mismo duelo

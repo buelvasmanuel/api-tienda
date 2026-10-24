@@ -60,7 +60,7 @@ api-tienda/
 │   ├── sesiones.py        # Familias de refresh en la BD: abrir, rotar, revocar, listar
 │   ├── dependencias.py    # sesion_actual, usuario_actual, requiere_rol(...)
 │   ├── errores.py         # {"detail": {"codigo", "mensaje"}}, 401 con WWW-Authenticate, 429
-│   ├── limites.py         # Límite por IP (librería limits) e ip_cliente()
+│   ├── limites.py         # Límites por IP y por usuario (librería limits) e ip_cliente()
 │   ├── middleware.py      # 413 por cuerpo > 64 KiB y 500 en JSON (dentro de CORS)
 │   ├── logs.py            # structlog: JSON, id por petición (X-Request-ID), sin datos personales
 │   ├── passkeys.py        # WebAuthn: desafíos de un solo uso, registro y verificación (librería webauthn)
@@ -82,7 +82,7 @@ api-tienda/
 │   ├── congelar_modelo_juego.py  # regenera app/modelo_juego.json (con commit)
 │   ├── generar_clave.py     # valor para CLAVE_TOKENS
 │   └── crear_usuario.py     # alias + --rol; única forma de crear el primer admin
-├── tests/                 # 605 tests (§8)
+├── tests/                 # 613 tests (§8)
 ├── docs/                  # ARQUITECTURA.md (este archivo), CONTRATO_AUTH.md, CONTRATO_LABORATORIO.md
 ├── .github/workflows/tests.yml  # CI: pytest con mariadb:lts y mysql:8.4
 ├── alembic.ini, pytest.ini, render.yaml, .python-version (3.14.7)
@@ -519,7 +519,7 @@ ningún valor** (`hide_input_in_errors`): antes, pydantic imprimía el valor
 inválido o, si faltaba una variable, el resto de variables, y eso acababa en
 los logs de Render.
 
-**Tests** (605; `pytest -q` en ~25 s; también pasan contra MySQL 8.4): auth 67,
+**Tests** (613; `pytest -q` en ~30 s; también pasan contra MySQL 8.4): auth 67,
 juego 62, límites 43, estudiantes 42, passkeys 40, duelos 37, laboratorio 35,
 duelos entre jugadores 34, seguridad 33, refresh 33, usuarios 29, logs 26,
 predicción 22, estadísticas 20, predicción del juego 15, modelo de usuarios 15,
@@ -705,11 +705,11 @@ en cookie, WebSocket, límites, logs, CORS, dependencias (`pip-audit` 2.10:
 | A1 | **Alta** | WebSocket: uvicorn aceptaba mensajes de 16 MiB y una cola de 32 por conexión **antes de autenticar**; unas pocas conexiones anónimas podían agotar los 512 MB de Render | **Arreglado**: `--ws-max-size 65536 --ws-max-queue 4` (render.yaml, panel de Render y Docker) y 120 conexiones/min por IP (4429). Tests con uvicorn real |
 | B1 | Media | Registrar una passkey no pide reautenticarse: con un access robado (15 min) se añade una passkey propia, que **sobrevive** a `logout-todo` y al cambio de contraseña del jugador (solo el restablecimiento del admin la borra) | Propuesto: pedir la contraseña actual (o una passkey) al registrar; cambia CONTRATO_PASSKEYS |
 | B2 | Media | La API se conecta a Aiven con `avnadmin` (todos los privilegios del servidor) | Propuesto: usuario propio con permisos solo sobre la base de la app (acción en Aiven) |
-| B3 | Media | Render tiene `autoDeploy: yes` y el build ejecuta `alembic upgrade head`: si la integración con GitHub empieza a funcionar, un push migraría Aiven **sin backup previo** | Propuesto: `autoDeploy: no` (acción en Render) |
-| B4 | Media | Emparejamiento: cada búsqueda ocupa 2 conexiones de base hasta 10 s (`GET_LOCK`); ~7 búsquedas a la vez agotan el pool (5 + 10) y la API entera espera. Basta una cuenta (el registro está abierto) | Propuesto: límite por usuario en `POST /duelos` y espera del candado de 2–3 s |
-| B5 | Baja | `POST /passkeys/registro/opciones` sin límite (crea una fila por llamada) y sin máximo de passkeys por usuario (Aiven free: 1 GB) | Propuesto: límite por usuario y máximo de 10 passkeys |
+| B3 | Media | Render tiene `autoDeploy: yes` y el build ejecuta `alembic upgrade head`: si la integración con GitHub empieza a funcionar, un push migraría Aiven **sin backup previo** | **Arreglado** (2026-10-23): `autoDeployTrigger: off` en render.yaml y `autoDeploy: no` en Render; test en `test_servidor.py` |
+| B4 | Media | Emparejamiento: cada búsqueda ocupa 2 conexiones de base hasta 10 s (`GET_LOCK`); ~7 búsquedas a la vez agotan el pool (5 + 10) y la API entera espera. Basta una cuenta (el registro está abierto) | **Arreglado** (2026-10-23): 20 `POST /duelos`/min por usuario (429), como mucho **3 búsquedas a la vez** (las demás esperan 3 s **sin conexión** y reciben 503 `emparejamiento_ocupado`) y candado de 3 s |
+| B5 | Baja | `POST /passkeys/registro/opciones` sin límite (crea una fila por llamada) y sin máximo de passkeys por usuario (Aiven free: 1 GB) | **Arreglado** (2026-10-23): 20/hora por usuario (429) y 10 passkeys como máximo (409 `demasiadas_passkeys`, también al verificar) |
 | C1 | Baja | Contraseñas sin comprobar contra listas de contraseñas comunes o filtradas | Propuesto: lista local de las 10 000 más comunes |
-| C2 | Baja | `pip-audit` no corre en CI | Propuesto: paso en el workflow (falla si hay vulnerabilidades) |
+| C2 | Baja | `pip-audit` no corre en CI | **Arreglado** (2026-10-23): workflow `auditoria.yml` en cada push y cada lunes; falla si hay vulnerabilidades |
 | C3 | Baja | Login: cada intento ocupa un hilo mientras espera el semáforo de Argon2 (2 a la vez); muchas IPs a la vez pueden frenar la API | Aceptado (plan gratuito); el techo por IP ya lo limita |
 | C4 | Informativa | Todo `buelvasmanuel.github.io` es **un solo origen**: CORS, passkeys y la cookie confían en cualquier proyecto de GitHub Pages de esa cuenta | No publicar ahí contenido de terceros |
 | C5 | Informativa | `/docs` y `/openapi.json` públicos en producción | Aceptado: los usa el profesor |

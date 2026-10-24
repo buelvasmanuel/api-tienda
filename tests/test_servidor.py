@@ -1,4 +1,5 @@
-"""Límites del servidor (uvicorn) que no se ven desde el TestClient.
+"""Configuración del servidor que no se ve desde el TestClient: límites de
+uvicorn y despliegue en Render.
 
 uvicorn acepta por defecto mensajes de WebSocket de 16 MiB y guarda 32 por
 conexión, también antes de autenticarse (auditoría 2026-10-13). Se limitan
@@ -37,6 +38,12 @@ def test_render_limita_los_mensajes_del_websocket():
     orden = orden_de_render()
     assert valor(orden, "--ws-max-size") == MAXIMO
     assert valor(orden, "--ws-max-queue") <= 8
+
+
+def test_render_sin_despliegue_automatico():
+    """El build migra la base de producción: nunca sin el backup previo (B3)."""
+    servicio = yaml.safe_load((RAIZ / "render.yaml").read_text())["services"][0]
+    assert servicio["autoDeployTrigger"] == "off"
 
 
 def test_docker_usa_los_mismos_limites():

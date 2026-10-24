@@ -1,6 +1,6 @@
 # Contrato del Duelo de cartas (Modo 4, Fase 7)
 
-> Contrato entre `api-tienda` y `app_estudiantes`. Versión **2.3**, 2026-10-13 (2.1: mensaje `error` antes de cerrar el WebSocket, §8; 2.2: `xp_hoy` en `GET /duelos`, §4.3; 2.3: códigos 4429 y 1009 del WebSocket, §8):
+> Contrato entre `api-tienda` y `app_estudiantes`. Versión **2.4**, 2026-10-23 (2.1: mensaje `error` antes de cerrar el WebSocket, §8; 2.2: `xp_hoy` en `GET /duelos`, §4.3; 2.3: códigos 4429 y 1009 del WebSocket, §8; 2.4: límites de `POST /duelos`, §4.1 y §7.1):
 > duelo contra la máquina (v1) y **jugador contra jugador** (v2, §7 y §8).
 > Autenticación, formato de errores (`{"detail": {"codigo", "mensaje"}}`) e
 > interceptor: CONTRATO_AUTH.md. XP, insignias y ranking: CONTRATO_JUEGO.md.
@@ -143,6 +143,9 @@ Con `{"modo": "jugador"}`, ver §7.1.
   contra la máquina activo por jugador.
 - `409 {"codigo": "sin_datos"}` si hay menos de 10 estudiantes (no hay cartas).
 - `422` si `modo` no es `"maquina"` ni `"jugador"`.
+- `429 demasiados_intentos` (con `Retry-After`) si un mismo jugador crea más
+  de **20 duelos por minuto** (v2.4; el uso normal no se acerca).
+  Como en CONTRATO_AUTH: esperar, sin reintentar en bucle.
 
 ### 4.2 `GET /duelos/{id}`
 
@@ -237,6 +240,7 @@ emparejamiento, el tiempo por turno y el WebSocket de avisos (§8).
 | Nadie esperando | `201 DueloOut` con `estado: "esperando"`, `expira_turno_en` = ahora + 60 s |
 | Ya estás esperando | `200` con ese mismo duelo (pulsar dos veces no crea dos) |
 | Ya tienes un duelo contra un jugador `en_juego` | `409 duelo_en_curso` con `"duelo_id"`: termínalo o abandónalo |
+| Muchos buscando rival a la vez (más de 3 búsquedas en curso durante 3 s) | `503 emparejamiento_ocupado`: volver a intentarlo en unos segundos (v2.4 lo documenta; ya existía) |
 
 - Nunca te empareja contigo mismo. La cola es la propia tabla de duelos (no
   memoria) y el emparejamiento va en fila (un candado en la base), así que dos

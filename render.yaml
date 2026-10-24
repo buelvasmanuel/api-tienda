@@ -6,6 +6,11 @@ services:
     runtime: python
     plan: free
     region: oregon  # cerca de la región de Aiven para que cada consulta tarde poco
+    # Sin despliegue automático (auditoría 2026-10-13, B3): el build migra la
+    # base de Aiven (alembic upgrade head), y antes de cada migración se hace un
+    # backup. Se despliega a mano (Manual Deploy o la API de Render). También
+    # está en "no" en el panel, que es lo que manda en un servicio ya creado.
+    autoDeployTrigger: "off"
     # Render no guarda archivos entre reinicios, pero sí lo que se genera en el
     # build: el modelo se entrena aquí, con los estudiantes de Aiven y con la
     # misma versión de scikit-learn que lo cargará. Para reentrenar: Manual Deploy.

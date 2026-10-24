@@ -438,7 +438,7 @@ FLUSH PRIVILEGES;
 ```
 
 ```bash
-pytest           # en api-tienda, con el venv activado → 602 passed, 3 skipped
+pytest           # en api-tienda, con el venv activado → 610 passed, 3 skipped
 flutter test     # en app_estudiantes → 246 tests passed
 ```
 

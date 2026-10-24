@@ -319,3 +319,47 @@ def test_el_login_con_contrasena_sigue_igual(jugador, con_passkey):
                              headers={"Authorization": ""})
 
     assert respuesta.status_code == 200 and respuesta.json()["usuario"]["alias"] == "Detective_Ana"
+
+
+# ---------- Límites (auditoría B5) ----------
+
+def test_maximo_10_passkeys_por_usuario(jugador):
+    for _ in range(10):
+        assert registrar(jugador, Autenticador()).status_code == 201
+
+    respuesta = jugador.post("/passkeys/registro/opciones")
+
+    assert respuesta.status_code == 409
+    assert codigo(respuesta) == "demasiadas_passkeys"
+    borrar = jugador.get("/passkeys").json()[0]["id"]
+    assert jugador.delete(f"/passkeys/{borrar}").status_code == 204
+    assert registrar(jugador, Autenticador()).status_code == 201  # al borrar una, cabe otra
+
+
+def test_el_maximo_se_comprueba_tambien_al_verificar(jugador):
+    """Opciones pedidas con 9 passkeys y otra registrada entretanto: la
+    verificación también cuenta."""
+    for _ in range(9):
+        registrar(jugador, Autenticador())
+    datos = jugador.post("/passkeys/registro/opciones").json()
+    assert registrar(jugador, Autenticador()).status_code == 201  # la 10.ª, con otras opciones
+
+    respuesta = jugador.post("/passkeys/registro/verificacion",
+                             json={"reto_id": datos["reto_id"], "credencial": Autenticador().crear(datos["opciones"])})
+
+    assert respuesta.status_code == 409
+    assert codigo(respuesta) == "demasiadas_passkeys"
+
+
+def test_limite_de_opciones_de_registro_por_usuario(jugador, client, crear_usuario, limite_por_ip):
+    from app import limites
+
+    for _ in range(limites.PASSKEYS_REGISTRO.amount):
+        assert jugador.post("/passkeys/registro/opciones").status_code == 200
+
+    respuesta = jugador.post("/passkeys/registro/opciones")
+
+    assert respuesta.status_code == 429
+    assert codigo(respuesta) == "demasiados_intentos"
+    otro = crear_usuario("Detective_Beto")
+    assert client.post("/passkeys/registro/opciones", headers=cabeceras(otro)).status_code == 200

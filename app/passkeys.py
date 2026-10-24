@@ -13,7 +13,7 @@ import secrets
 import uuid
 from datetime import timedelta
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 from webauthn import (
     generate_authentication_options,
@@ -36,6 +36,7 @@ from app.config import settings
 from app.models import Passkey, RetoWebAuthn, Usuario
 
 RETO_DURACION = timedelta(minutes=5)
+MAXIMO_POR_USUARIO = 10  # auditoría B5: sin tope, una cuenta podía llenar la tabla
 NOMBRE_POR_DEFECTO = "Passkey"
 # Cualquier fallo al interpretar o verificar lo que manda el navegador.
 _ERRORES_DE_VERIFICACION = (WebAuthnException, ValueError, KeyError, TypeError)
@@ -78,8 +79,15 @@ def _usar_reto(db: Session, reto_id: str, tipo: str, usuario_id: int | None) -> 
 
 # ---------- Registro ----------
 
+def _demasiadas() -> PasskeyRechazada:
+    return PasskeyRechazada(409, "demasiadas_passkeys",
+                            f"Ya tienes {MAXIMO_POR_USUARIO} passkeys: borra alguna para añadir otra")
+
+
 def opciones_registro(db: Session, usuario: Usuario) -> tuple[str, dict]:
     existentes = db.scalars(select(Passkey.credencial_id).where(Passkey.usuario_id == usuario.id)).all()
+    if len(existentes) >= MAXIMO_POR_USUARIO:
+        raise _demasiadas()
     reto, desafio = _nuevo_reto(db, "registro", usuario.id)
     opciones = generate_registration_options(
         rp_id=settings.PASSKEYS_RP_ID,
@@ -109,6 +117,9 @@ def registrar(db: Session, usuario: Usuario, reto_id: str, credencial: dict, nom
     credencial_id = bytes_to_base64url(verificada.credential_id)
     if db.scalar(select(Passkey.id).where(Passkey.credencial_id == credencial_id)) is not None:
         raise PasskeyRechazada(409, "passkey_repetida", "Esa passkey ya está registrada")
+    # Otra vez aquí: entre las opciones y la verificación pudo registrar otras.
+    if db.scalar(select(func.count()).select_from(Passkey).where(Passkey.usuario_id == usuario.id)) >= MAXIMO_POR_USUARIO:
+        raise _demasiadas()
     passkey = Passkey(
         usuario_id=usuario.id, credencial_id=credencial_id,
         clave_publica=bytes_to_base64url(verificada.credential_public_key),

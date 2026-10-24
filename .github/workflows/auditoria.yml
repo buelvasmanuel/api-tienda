@@ -1,0 +1,37 @@
+# Vulnerabilidades conocidas en las dependencias (pip-audit contra la base de
+# datos de PyPI/OSV). Falla si alguna versión fijada tiene una vulnerabilidad.
+# Corre en cada push y pull request y, además, cada lunes: una vulnerabilidad
+# nueva aparece aunque no se toque el código. Auditoría 2026-10-13, C2.
+#
+# --no-deps: todas las dependencias están fijadas a mano con == (también las
+# transitivas), así que no hace falta resolver nada; --disable-pip: no crea un
+# entorno para instalarlas.
+name: Auditoría de dependencias
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"  # lunes, 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Instalar pip-audit
+        run: pip install pip-audit==2.10.0
+
+      - name: Auditar requirements.txt y requirements-dev.txt
+        run: pip-audit -r requirements-dev.txt --disable-pip --no-deps --progress-spinner off
