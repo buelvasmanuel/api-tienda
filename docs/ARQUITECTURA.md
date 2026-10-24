@@ -82,8 +82,9 @@ api-tienda/
 │   ├── entrenar_modelo.py   # CV estratificada 5 particiones, elige por F2, --sin-graficas
 │   ├── congelar_modelo_juego.py  # regenera app/modelo_juego.json (con commit)
 │   ├── generar_clave.py     # valor para CLAVE_TOKENS
-│   └── crear_usuario.py     # alias + --rol; única forma de crear el primer admin
-├── tests/                 # 641 tests (§8)
+│   ├── crear_usuario.py     # alias + --rol; única forma de crear el primer admin
+│   └── desactivar_cuenta.py # id + alias esperado; vía la API (producción por defecto)
+├── tests/                 # 650 tests (§8)
 ├── docs/                  # ARQUITECTURA.md (este archivo), CONTRATO_AUTH.md, CONTRATO_LABORATORIO.md
 ├── .github/workflows/tests.yml  # CI: pytest con mariadb:lts y mysql:8.4
 ├── alembic.ini, pytest.ini, render.yaml, .python-version (3.14.7)
@@ -520,11 +521,12 @@ ningún valor** (`hide_input_in_errors`): antes, pydantic imprimía el valor
 inválido o, si faltaba una variable, el resto de variables, y eso acababa en
 los logs de Render.
 
-**Tests** (641; `pytest -q` en ~30 s; también pasan contra MySQL 8.4): auth 67,
+**Tests** (650; `pytest -q` en ~30 s; también pasan contra MySQL 8.4): auth 67,
 juego 62, límites 43, estudiantes 42, passkeys 40, duelos 37, laboratorio 35,
 duelos entre jugadores 34, seguridad 33, refresh 33, usuarios 29, logs 26,
 predicción 22, estadísticas 20, predicción del juego 15, modelo de usuarios 15,
-modelo del juego 9, migraciones 1, refresh en cookie 32, límites con Redis 5, servidor 5, contraseñas comunes 21
+modelo del juego 9, migraciones 1, refresh en cookie 32, límites con Redis 5, servidor 5, contraseñas comunes 21,
+script de desactivar cuentas 9
 (3 se saltan si no hay Redis; en CI hay uno). Las passkeys se prueban con un autenticador
 simulado (`tests/autenticador.py`) que produce firmas ECDSA reales.
 

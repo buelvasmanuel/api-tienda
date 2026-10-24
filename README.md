@@ -228,6 +228,23 @@ Para una clase, el docente crea las cuentas de los alumnos de una vez con
 las muestra en esa respuesta). Los límites por IP están pensados para que una
 clase entera, que comparte la IP del colegio, pueda iniciar sesión a la vez.
 
+Para desactivar una cuenta (por ejemplo, una de prueba) está
+`scripts/desactivar_cuenta.py`. Habla con la API (por defecto la de
+producción, `https://api-tienda-wjac.onrender.com`) y no con la base:
+
+```bash
+python -m scripts.desactivar_cuenta 20 Prueba_V1101_20261024             # id y alias esperado
+python -m scripts.desactivar_cuenta 20 Prueba_V1101_20261024 --url http://127.0.0.1:8000
+```
+
+- Pide el alias del admin (Intro = `Detective_Manu`) y la contraseña sin
+  mostrarla. No imprime ni guarda la contraseña ni los tokens.
+- Antes de desactivar comprueba que el id es de ese alias; si no coincide,
+  no toca nada. Desactivar cierra también todas las sesiones de la cuenta.
+- Al terminar cierra la sesión del admin (también si algo falla) y muestra
+  las cuentas que quedan activas. Sale con código 1 si no se pudo.
+- La primera petición puede tardar más de un minuto si Render estaba dormido.
+
 Las contraseñas se guardan con **Argon2id**; los refresh tokens, solo como
 SHA-256. Detalles y decisiones en [docs/CONTRATO_AUTH.md](docs/CONTRATO_AUTH.md).
 
