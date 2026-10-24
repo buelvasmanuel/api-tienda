@@ -24,9 +24,9 @@ Tres formas de probarlo:
 | **API (Swagger)** | <https://api-tienda-wjac.onrender.com/docs> |
 
 > ⏱️ La API está en el plan gratuito de Render, que **se apaga tras ~15 min sin
-> uso**. La primera carga puede tardar **hasta un minuto**: la app muestra
-> *"Despertando el servidor, puede tardar hasta un minuto…"*. Después responde
-> al instante.
+> uso**. La primera carga puede tardar **uno o dos minutos**: la app muestra
+> ya el login con el aviso *"Despertando el servidor…"* y, si había sesión,
+> entra sola cuando responde. Después responde al instante.
 
 **Instalar el APK en un celular Android:**
 
@@ -439,7 +439,7 @@ FLUSH PRIVILEGES;
 
 ```bash
 pytest           # en api-tienda, con el venv activado → 647 passed, 3 skipped
-flutter test     # en app_estudiantes → 246 tests passed
+flutter test     # en app_estudiantes → 259 tests passed
 ```
 
 ---
@@ -454,7 +454,7 @@ flutter test     # en app_estudiantes → 246 tests passed
 | **venv no activado**: `No module named 'fastapi'`, `"uvicorn" no se reconoce...`, `alembic: command not found` | Activar el venv (Windows CMD `venv\Scripts\activate`, PowerShell `.\venv\Scripts\Activate.ps1`, Linux `source venv/bin/activate`). El prompt debe empezar por `(venv)` |
 | `Table 'tienda_db.estudiantes' doesn't exist` | `alembic upgrade head` |
 | **503** "Modelo no entrenado" (pestaña Predicción) | `python -m scripts.entrenar_modelo` (no hace falta reiniciar la API) |
-| **Lista de estudiantes vacía** | `python -m scripts.seed_estudiantes` y en la app pulsar Actualizar |
+| **Lista de estudiantes vacía** | `python -m scripts.seed_estudiantes` y en la app deslizar la lista hacia abajo |
 | App: "Sin conexión con la API" | La API no está corriendo, o está en otro puerto. Comprobar <http://127.0.0.1:8000/docs> y pulsar **Reintentar** |
 | `pip install` falla con "requires a different Python" / `pandas==3.0.6` | Python es 3.10 o anterior: instalar 3.11+ y recrear el venv (`py -3.13 -m venv venv` en Windows) |
 | Windows: `Unable to find suitable Visual Studio toolchain` | Instalar Visual Studio 2022 con "Desarrollo para el escritorio con C++", o usar `flutter run -d chrome` |
